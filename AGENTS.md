@@ -1,6 +1,6 @@
 ---
 title: Sultan
-description: TODO — brief description of the project.
+description: "An TODO and note application boosted with AI"
 sultan_phase: Not started
 iterations: 0
 mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
