@@ -1,8 +1,8 @@
 ---
-title: Sultan
-description: "An TODO and note application boosted with AI"
-sultan_phase: Not started
-iterations: 0
+title: Todowai
+description: "A privacy-first AI-assisted note and task companion for deciding what to do next."
+sultan_phase: 1 — Specification
+iterations: 1
 mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
 ---
 
@@ -14,17 +14,15 @@ mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
 
 <!-- Managed by the `update-phase` skill. Do not edit manually. -->
 
-**Phase:** —
-**Iteration:** —
-**Status:** Not started
+**Phase:** 1 — Specification
+**Iteration:** 1
+**Status:** In Progress
 
 ---
 
 ## Project Overview
 
-<!-- Fill in when forking this template. -->
-
-TODO: brief description of the project.
+Todowai is a personal notes and task application that keeps track of what a person has done, is doing, and wants to do in an Obsidian-style Markdown workspace. The product should let the user capture and edit notes from mobile, browser, and desktop clients, then use AI to reorganize those notes, help follow projects, support delegated AI work, and suggest what to do next across large tasks, parallel work, and meetings.
 
 ---
 
@@ -173,4 +171,7 @@ The agent will recognise the skill name, load the corresponding file from `.agen
 
 ## Constraints
 
-TODO: list hard constraints the agent must not violate.
+- Keep personal notes and task history as private as possible.
+- Preserve an Obsidian-style Markdown note-taking model.
+- Support note access and editing from mobile, browser, and desktop environments.
+- Handle mobile and PC usage in parallel without blocking concurrent edits.
