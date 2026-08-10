@@ -1,0 +1,224 @@
+name: Seed Initial Issues
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Seed issues from template data
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const configPath = '.github/issue-seeds.json';
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const markerTitle = config.marker?.title || '[seed] Initial template issues created';
+            const markerLabel = config.marker?.label || 'seeded:initial-issues';
+
+            const { owner, repo } = context.repo;
+
+            const repoInfo = await github.rest.repos.get({ owner, repo });
+            const repoBlobBase = `https://github.com/${owner}/${repo}/blob/${repoInfo.data.default_branch}/`;
+            const renderBody = (text) => (text || '').replace(/\{\{repo_blob\}\}/g, repoBlobBase);
+
+            async function ensureLabel(name, color = '1D76DB', description = 'Issue seeding marker') {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color,
+                  description
+                });
+              }
+            }
+
+            const existingOpenAndClosed = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner,
+                repo,
+                state: 'all',
+                per_page: 100
+              }
+            );
+
+            const markerAlreadyExists = existingOpenAndClosed.some(
+              (issue) => !issue.pull_request && issue.title === markerTitle
+            );
+
+            if (markerAlreadyExists) {
+              core.notice('Initial issue seeding already completed. Skipping.');
+              return;
+            }
+
+            await ensureLabel(markerLabel, '0E8A16', 'Initial issue seeding completed');
+
+            async function autoFillAgentsMdFrontMatter() {
+              const agentsPath = 'AGENTS.md';
+              let file;
+              try {
+                file = await github.rest.repos.getContent({
+                  owner,
+                  repo,
+                  path: agentsPath,
+                  ref: repoInfo.data.default_branch
+                });
+              } catch (error) {
+                core.notice(`Skipping AGENTS.md auto-fill: could not read the file (${error.message}).`);
+                return;
+              }
+
+              if (Array.isArray(file.data) || typeof file.data.content !== 'string') {
+                return;
+              }
+
+              const original = Buffer.from(file.data.content, 'base64').toString('utf8');
+              let updated = original;
+
+              const titleFallback = repo
+                .replace(/[-_]+/g, ' ')
+                .replace(/\b\w/g, (c) => c.toUpperCase());
+
+              if (/^title:\s*TODO\b.*$/m.test(updated)) {
+                updated = updated.replace(/^title:\s*TODO\b.*$/m, `title: ${titleFallback}`);
+              }
+
+              const repoDescription = repoInfo.data.description;
+              if (repoDescription && /^description:\s*TODO\b.*$/m.test(updated)) {
+                const safeDescription = repoDescription.replace(/"/g, '\\"');
+                updated = updated.replace(
+                  /^description:\s*TODO\b.*$/m,
+                  `description: "${safeDescription}"`
+                );
+              }
+
+              if (updated === original) {
+                return;
+              }
+
+              await github.rest.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: agentsPath,
+                message: 'chore: auto-fill project title/description in AGENTS.md front-matter',
+                content: Buffer.from(updated, 'utf8').toString('base64'),
+                sha: file.data.sha,
+                branch: repoInfo.data.default_branch
+              });
+              core.notice('Auto-filled AGENTS.md front-matter (title/description) from repository metadata.');
+            }
+
+            await autoFillAgentsMdFrontMatter();
+
+            const defaults = config.defaults || {};
+            const items = config.issues || [];
+            const numbersBySeedId = {};
+            let createdCount = 0;
+
+            for (const item of items) {
+              const seedId = item.id;
+              const seedToken = `<!-- issue-seed-id:${seedId} -->`;
+              const existing = existingOpenAndClosed.find(
+                (issue) =>
+                  !issue.pull_request &&
+                  typeof issue.body === 'string' &&
+                  issue.body.includes(seedToken)
+              );
+
+              if (existing) {
+                core.notice(`Issue already exists for seed id: ${seedId}. Skipping.`);
+                numbersBySeedId[seedId] = existing.number;
+                continue;
+              }
+
+              const labels = Array.from(
+                new Set([...(defaults.labels || []), ...(item.labels || [])])
+              );
+              const assignees = item.assignees ?? defaults.assignees ?? [];
+              const milestone = item.milestone ?? defaults.milestone;
+
+              const body = `${renderBody(item.body)}\n\n${seedToken}`;
+              const payload = {
+                owner,
+                repo,
+                title: item.title,
+                body
+              };
+
+              if (labels.length > 0) payload.labels = labels;
+              if (assignees.length > 0) payload.assignees = assignees;
+              if (milestone !== null && milestone !== undefined) payload.milestone = milestone;
+
+              const created = await github.rest.issues.create(payload);
+              numbersBySeedId[seedId] = created.data.number;
+              createdCount += 1;
+            }
+
+            // Second pass: every issue number is now known, so record the phase
+            // dependency chain (step N depends on step N-1) directly in each body.
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              const number = numbersBySeedId[item.id];
+              if (!number) continue;
+
+              const prevItem = items[i - 1];
+              const nextItem = items[i + 1];
+              const dependencyLines = [];
+
+              if (prevItem && numbersBySeedId[prevItem.id]) {
+                dependencyLines.push(
+                  `**Depends on:** #${numbersBySeedId[prevItem.id]} (must be completed first)`
+                );
+              }
+              if (nextItem && numbersBySeedId[nextItem.id]) {
+                dependencyLines.push(`**Blocks:** #${numbersBySeedId[nextItem.id]}`);
+              }
+
+              if (dependencyLines.length === 0) continue;
+
+              const seedToken = `<!-- issue-seed-id:${item.id} -->`;
+              const body = `${renderBody(item.body)}\n\n${dependencyLines.join('\n')}\n\n${seedToken}`;
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: number,
+                body
+              });
+            }
+
+            const marker = await github.rest.issues.create({
+              owner,
+              repo,
+              title: markerTitle,
+              body: `Initial issue seeding completed.\n\nCreated ${createdCount} issue(s) from \`${configPath}\`.`,
+              labels: [markerLabel]
+            });
+
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: marker.data.number,
+              state: 'closed'
+            });
+
+            core.notice(`Issue seeding completed. Created ${createdCount} issue(s).`);

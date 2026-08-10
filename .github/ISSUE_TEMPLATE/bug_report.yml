@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report something that is broken or behaving unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill in as much detail as possible.
+        Clear reproduction steps and expected vs actual behaviour help the AI coding agent fix the right thing first time.
+        > Run the `issue-template-maker` skill to replace placeholder values with project-specific areas and environments.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the broken behaviour.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Observe '...'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / screen affected
+      description: Which part of the application is involved? (Customise these options with the `issue-template-maker` skill.)
+      options:
+        - Not sure
+        - Other
+      multiple: true
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical — app is unusable
+        - High — major feature broken
+        - Medium — partial breakage, workaround exists
+        - Low — cosmetic or minor
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Preferred AI coding agent
+      description: |
+        **Claude** — add the `agent:claude` label; a Claude Code session will handle this issue.
+        **GitHub Copilot** — add the `agent:copilot` label and assign the issue to @copilot in GitHub.
+      options:
+        - Claude (default)
+        - GitHub Copilot
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "e.g. staging · Chrome 124 · macOS 14"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste error messages, console output, or attach screenshots.

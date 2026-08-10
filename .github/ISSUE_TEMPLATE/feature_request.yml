@@ -1,0 +1,68 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a feature.
+        The more detail and context you provide, the better an AI coding agent can implement it autonomously.
+        > Run the `issue-template-maker` skill to replace placeholder values with project-specific areas and examples.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What should the application do?
+      description: A clear, one-paragraph description of the desired behaviour.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this needed?
+      description: What user problem does it solve? Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Bullet list of conditions that must be true for this to be considered done. Be specific — an AI agent will use this list to verify its own work.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / screen affected
+      description: Which part of the application is involved? (Customise these options with the `issue-template-maker` skill.)
+      options:
+        - Not sure
+        - Other
+      multiple: true
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Preferred AI coding agent
+      description: |
+        **Claude** — add the `agent:claude` label; a Claude Code session will handle this issue.
+        **GitHub Copilot** — add the `agent:copilot` label and assign the issue to @copilot in GitHub.
+      options:
+        - Claude (default)
+        - GitHub Copilot
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, sketches, links to related issues or specs, design constraints.

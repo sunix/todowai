@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "marker": {
+    "title": "[seed] Initial template issues created",
+    "label": "seeded:initial-issues"
+  },
+  "defaults": {
+    "labels": [],
+    "assignees": [],
+    "milestone": null
+  },
+  "issues": [
+    {
+      "id": "phase-1-specification",
+      "title": "Phase 1 — Produce project specification",
+      "body": "Create and review the first complete draft of `specification/specs.md`.\n\n## Prerequisites\n- [ ] In this repo's **Settings → Pages → Source**, select **GitHub Actions** (required later, for the Phase 2 mockup deployment). This can't be automated by this bootstrap workflow — the default `GITHUB_TOKEN` doesn't have the repo-admin rights needed to enable Pages.\n- [ ] Open [`AGENTS.md`]({{repo_blob}}AGENTS.md) — the `title`/`description` front-matter fields are auto-filled from this repository's name/description, review and adjust them if needed, then fill in the **Project Overview** and **Constraints** sections\n\n## Steps\n- [ ] Dump your raw notes, brain dump, or existing docs into [`specification/scratch.md`]({{repo_blob}}specification/scratch.md) (or point the agent at any file/pasted text)\n- [ ] Ask the agent to run the `import-specs` skill to produce the first draft of [`specification/specs.md`]({{repo_blob}}specification/specs.md)\n- [ ] Ask the agent to run the `refine-specs` skill and iterate until the spec is complete and unambiguous\n- [ ] Tell the agent the spec is ready to prototype\n\n## Acceptance Criteria\n- [ ] Project summary, actors, user stories, screens, acceptance criteria, non-functional requirements, out-of-scope, and open questions are filled\n- [ ] Human explicitly confirms specs are ready to prototype\n\n## References\n- AGENTS.md (Phase 1)\n- README.md (Phase 1)"
+    },
+    {
+      "id": "phase-2-mockup",
+      "title": "Phase 2 — Generate and validate clickable mockup",
+      "body": "Generate a self-contained clickable prototype under `mockup/` from the approved specification.\n\n## Steps\n- [ ] Ask the agent to run the `generate-mockup` skill to produce the prototype in [`mockup/`]({{repo_blob}}mockup/)\n- [ ] Push to `main` and check the live prototype at `https://<org-or-user>.github.io/<repo-name>/` (auto-deployed by `.github/workflows/deploy-mockup.yml`)\n- [ ] Review the mockup, then either ask the agent to iterate on it, or ask the agent to run the `sync-specs-from-mockup` skill to update the spec and return to Phase 1\n- [ ] Tell the agent the mockup is approved\n\n## Acceptance Criteria\n- [ ] Mockup is generated and navigable\n- [ ] Human reviews the mockup and either approves or requests another iteration\n\n## References\n- AGENTS.md (Phase 2)\n- README.md (Phase 2)"
+    },
+    {
+      "id": "phase-3-plan",
+      "title": "Phase 3 — Create implementation, deployment, and monitoring plans",
+      "body": "Create actionable plans and track each action item via GitHub issues.\n\n## Steps\n- [ ] Ask the agent to run the `create-plan` skill\n- [ ] Review [`plan/implementation.md`]({{repo_blob}}plan/implementation.md), [`plan/deployment.md`]({{repo_blob}}plan/deployment.md), and [`plan/monitoring.md`]({{repo_blob}}plan/monitoring.md)\n- [ ] Review and reprioritize the GitHub issues the agent created from the plan's action items\n\n## Acceptance Criteria\n- [ ] `plan/implementation.md`, `plan/deployment.md`, and `plan/monitoring.md` are created and reviewed\n- [ ] Action items are represented as GitHub issues with clear acceptance criteria\n\n## References\n- AGENTS.md (Phase 3)\n- README.md (Phase 3)"
+    },
+    {
+      "id": "phase-4-implementation",
+      "title": "Phase 4 — Execute planned issues to deliver first QA/staging release",
+      "body": "Implement prioritized plan issues and merge reviewed pull requests until the first version runs in QA/staging.\n\n## Steps\n- [ ] For each planned issue, set the **AI Coding Agent** label (`agent:claude` or `agent:copilot`)\n- [ ] For `agent:claude` issues: open a Claude Code session, reference the issue, implement on a branch, and open a PR\n- [ ] For `agent:copilot` issues: assign to `@copilot` or click **\"Request Copilot\"**\n- [ ] Review and merge the resulting pull requests, tracking progress in [`implementation/progress.md`]({{repo_blob}}implementation/progress.md)\n\n## Acceptance Criteria\n- [ ] Planned scope is implemented through issue-driven PRs\n- [ ] First version is deployed to QA/staging\n- [ ] Progress is tracked in `implementation/progress.md`\n\n## References\n- AGENTS.md (Phase 4)\n- README.md (Phase 4)"
+    },
+    {
+      "id": "phase-5-operate",
+      "title": "Phase 5 — Enable ongoing operate loop with issue templates",
+      "body": "Set up issue templates and labels so users can continuously submit bug reports and feature requests.\n\n## Steps\n- [ ] Ask the agent to run the `issue-template-maker` skill\n- [ ] Confirm the templates are live under [`.github/ISSUE_TEMPLATE/`]({{repo_blob}}.github/ISSUE_TEMPLATE/) and the `agent:claude` / `agent:copilot` labels exist\n- [ ] Start routing incoming feature requests and bug reports to Claude or Copilot as they arrive\n\n## Acceptance Criteria\n- [ ] Issue templates are project-aware\n- [ ] Agent routing labels are available and used (`agent:claude`, `agent:copilot`)\n- [ ] Team is ready to process incoming issues continuously\n\n## References\n- AGENTS.md (Phase 5)\n- README.md (Phase 5)"
+    }
+  ]
+}
