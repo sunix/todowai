@@ -2,7 +2,7 @@
 title: Todowai
 description: "A privacy-first AI-assisted note and task companion for deciding what to do next."
 sultan_phase: 1 — Specification
-iterations: 1
+iterations: 2
 mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
 ---
 
@@ -15,7 +15,7 @@ mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
 <!-- Managed by the `update-phase` skill. Do not edit manually. -->
 
 **Phase:** 1 — Specification
-**Iteration:** 1
+**Iteration:** 2
 **Status:** In Progress
 
 ---
@@ -175,3 +175,6 @@ The agent will recognise the skill name, load the corresponding file from `.agen
 - Preserve an Obsidian-style Markdown note-taking model.
 - Support note access and editing from mobile, browser, and desktop environments.
 - Handle mobile and PC usage in parallel without blocking concurrent edits.
+- Store notes and AI conversations in a single user-configurable private git repository (dedicated subfolder for conversations), not one hardcoded by the app.
+- Do not implement note/conversation content encryption in v1; rely on private-repo + git transport security instead (GPG/content encryption deferred).
+- Do not let the AI write to external services (e.g. calendar, email) or execute autonomously outside the note base; delegated AI work is limited to reviewable edits within the repo, always confirmed by the user.
