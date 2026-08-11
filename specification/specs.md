@@ -33,6 +33,10 @@ Todowai is a personal productivity application that helps a user decide what to 
 - **As an** individual user, **I want the AI to** propose my next todos based on my current status, notes, backlog, and calendar, and confirm them with me, **so that** nothing gets added to my plan without my approval.
 - **As an** individual user, **I want to** connect a read-only calendar feed URL, **so that** the AI knows what I already have planned.
 - **As an** individual user, **I want the AI to** suggest a small, fitting backlog item when my status is a situational context rather than a task — **so that** short or passive moments (e.g. a coffee break, the metro) are still put to good use, like glancing at a side project on my phone or reading one page of a book.
+- **As an** individual user, **I want to** classify todos and projects by a week / month(s) / year horizon, **so that** I can distinguish near-term priorities from longer-term intentions.
+- **As an** individual user, **I want to** move an item between horizons myself, **so that** I can re-prioritize as things change.
+- **As an** individual user, **I want the AI to** suggest moving an item between horizons and confirm it with me, **so that** my horizons stay realistic without the AI silently reorganizing my plan.
+- **As an** individual user, **I want to** connect more than one read-only calendar feed, **so that** events from multiple calendars (e.g. work and personal) are reflected in what's upcoming.
 
 ---
 
@@ -42,8 +46,9 @@ Todowai is a personal productivity application that helps a user decide what to 
 - **Notebook view:** an Obsidian-style Markdown workspace containing what the user has done, is doing, and wants to do.
 - **Next action view:** shows the user's current status (task or situational context) and the AI's proposed next todo, which the user confirms or rejects before it's treated as decided.
 - **Project tracking view:** a place to follow large tasks, parallel work, and delegated AI work.
+- **Horizon view:** todos and projects grouped into This Week / This Month(s) / This Year columns; the user can move an item between horizons, and the AI can propose reassignments (e.g. promoting a stale weekly item to monthly) that the user confirms or rejects.
 - **Meetings view:** a place to keep track of meeting-related notes and commitments.
-- **Settings view:** configure the git repository path/subfolder and the read-only calendar feed URL.
+- **Settings view:** configure the git repository path/subfolder and one or more read-only calendar feed URLs (each labeled, e.g. "Work," "Personal").
 
 ---
 
@@ -64,6 +69,9 @@ Todowai is a personal productivity application that helps a user decide what to 
 - Meetings are represented as plain Markdown notes using a lightweight frontmatter convention (e.g. `type: meeting`, `date`, `attendees`), not a dedicated data object or calendar-synced entity.
 - AI conversations are stored in a dedicated subfolder within the same git repository as the notes.
 - No note or conversation content is encrypted in v1; privacy relies on the repository being private plus standard git transport security (SSH/HTTPS).
+- Todos and projects can be tagged with a horizon (week / month(s) / year) and viewed grouped by that horizon.
+- The user can move an item between horizons manually; the AI can propose moving an item between horizons, but the move only takes effect after explicit user confirmation.
+- Settings supports configuring one or more read-only calendar feed URLs, each with a label; the upcoming/calendar view merges and labels events from all configured feeds.
 
 ---
 
@@ -76,7 +84,7 @@ Todowai is a personal productivity application that helps a user decide what to 
   - **Pull:** before opening a page or the main screen, and periodically in the background while the app is foregrounded (to keep status/suggestions reasonably fresh across devices). If offline, the pull fails silently, the page opens with local/cached state, and it retries in the background — it never blocks the UI.
   - **Push:** immediately after AI edits (discrete, meaningful commits); debounced after manual user edits (e.g. after a short idle period or on closing a note) rather than on every keystroke, to avoid spamming the remote and draining battery/data on mobile.
   - Conflicts are resolved via git's 3-way merge and surfaced non-blockingly, never blocking further edits.
-- Calendar integration is read-only via a user-configured feed URL (e.g. an iCal link); no write access to external calendar or other external services in v1.
+- Calendar integration is read-only via one or more user-configured feed URLs (e.g. iCal links), each merged and labeled by source; no write access to external calendar or other external services in v1.
 
 ---
 
@@ -86,7 +94,7 @@ Todowai is a personal productivity application that helps a user decide what to 
 - AI writing to external services (e.g. creating/modifying calendar events, sending emails).
 - Autonomous, unsupervised AI execution outside the note base.
 - Multi-user or real-time collaborative editing (this product is single-user, multi-device).
-- Support for multiple simultaneous calendar accounts or providers.
+- OAuth-based calendar provider integrations or authenticated accounts (multiple read-only feed URLs are supported; provider authentication and write access are not).
 
 ---
 

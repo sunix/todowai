@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Todowai — Prototype</title>
+<style>
+  :root {
+    --bg: #14161b;
+    --panel: #1b1e25;
+    --panel-2: #22262f;
+    --border: #2d323d;
+    --text: #e7e9ee;
+    --muted: #9099a8;
+    --accent: #7c6cf0;
+    --accent-2: #4fd1a5;
+    --warn: #f0b64f;
+    --danger: #ef6b6b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  a { color: inherit; }
+
+  .proto-banner {
+    background: var(--warn);
+    color: #2a2205;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 10px;
+    letter-spacing: .02em;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 30px);
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 10px;
+  }
+  .brand {
+    font-weight: 700;
+    font-size: 18px;
+    padding: 4px 10px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  nav.navlist { display: flex; flex-direction: column; gap: 2px; }
+  .navlist button {
+    all: unset;
+    cursor: pointer;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .navlist button:hover { background: var(--panel-2); color: var(--text); }
+  .navlist button.active { background: var(--accent); color: white; }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .sync-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); }
+  .sync-dot.offline { background: var(--danger); }
+  .sync-row button {
+    all: unset; cursor: pointer; margin-left: auto; font-size: 11px;
+    color: var(--accent); text-decoration: underline;
+  }
+  .offline-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+
+  /* Main */
+  main { padding: 24px 32px; overflow-x: auto; }
+  .view { display: none; }
+  .view.active { display: block; animation: fade .15s ease-in; }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+
+  h1.title { font-size: 22px; margin: 0 0 4px; }
+  p.subtitle { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+  textarea, input[type=text], select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  label { font-size: 12px; color: var(--muted); display: block; margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+
+  button.btn {
+    all: unset;
+    cursor: pointer;
+    background: var(--accent);
+    color: white;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  button.btn.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  button.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  button.btn.danger-ghost { background: transparent; color: var(--danger); border: 1px solid var(--border); }
+  .btn-row { display: flex; gap: 10px; margin-top: 14px; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 999px; font-size: 12px; color: var(--muted);
+  }
+  .pill.on { color: var(--accent-2); border-color: var(--accent-2); }
+
+  .device-tags { display: flex; gap: 8px; margin-bottom: 14px; }
+
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  ul.list li {
+    padding: 12px; border-bottom: 1px solid var(--border);
+    font-size: 13px; display: flex; justify-content: space-between; gap: 10px;
+  }
+  ul.list li:last-child { border-bottom: none; }
+  .meta { color: var(--muted); font-size: 12px; }
+
+  /* Notebook */
+  .notebook { display: grid; grid-template-columns: 240px 1fr; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; height: 520px; }
+  .tree { background: var(--panel); border-right: 1px solid var(--border); padding: 12px; overflow-y: auto; }
+  .tree .folder { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  .tree .folder:first-child { margin-top: 0; }
+  .tree button { all: unset; cursor: pointer; display: block; width: 100%; padding: 6px 8px; border-radius: 6px; font-size: 13px; color: var(--text); }
+  .tree button:hover { background: var(--panel-2); }
+  .tree button.active { background: var(--accent); color: white; }
+  .editor { background: #101217; padding: 22px; overflow-y: auto; }
+  .editor h2 { margin-top: 0; }
+  .editor pre { white-space: pre-wrap; font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 13.5px; line-height: 1.6; color: #d7dbe4; }
+  .editor .frontmatter { color: var(--accent-2); }
+  .editor .path { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+
+  /* Next action */
+  .status-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .status-card .status-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .status-card .status-value { font-size: 20px; font-weight: 700; }
+  .suggestion {
+    margin-top: 18px; border: 1px dashed var(--accent); border-radius: 10px; padding: 16px;
+    background: rgba(124,108,240,0.08);
+  }
+  .suggestion .tag { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .suggestion .text { font-size: 16px; margin: 8px 0 4px; }
+  .plan-item.confirmed { color: var(--accent-2); }
+  .plan-item.confirmed::before { content: "✓ "; }
+
+  /* Projects */
+  .project-card { display: flex; flex-direction: column; gap: 10px; }
+  .project-card .name { font-weight: 700; font-size: 15px; }
+  .progress { height: 6px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+  .progress > div { height: 100%; background: var(--accent-2); }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; display: inline-block; }
+  .badge.ai { background: rgba(124,108,240,.18); color: var(--accent); }
+  .badge.parallel { background: rgba(240,182,79,.18); color: var(--warn); }
+  .badge.blocked { background: rgba(239,107,107,.18); color: var(--danger); }
+
+  /* Horizon */
+  .horizon-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .horizon-col { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-height: 260px; }
+  .horizon-col h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  .horizon-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+  .horizon-item .item-title { margin-bottom: 8px; }
+  .horizon-item .move-row { display: flex; gap: 6px; }
+  .horizon-item .move-row button {
+    all: unset; cursor: pointer; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
+  }
+  .horizon-item .move-row button:hover { color: var(--text); border-color: var(--accent); }
+  .horizon-item .move-row button:disabled { opacity: .3; cursor: default; }
+  .horizon-item .move-row button:disabled:hover { color: var(--muted); border-color: var(--border); }
+  .ai-horizon-suggestion {
+    border: 1px dashed var(--accent); border-radius: 10px; padding: 14px 16px;
+    background: rgba(124,108,240,0.08); margin-bottom: 18px; font-size: 13px;
+  }
+  .ai-horizon-suggestion .tag { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; display:block; }
+
+  /* Calendar list (Settings) */
+  .calendar-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .calendar-row input[type=text] { flex: 1; }
+  .calendar-row input.label-input { flex: 0 0 110px; }
+  .calendar-row button.remove {
+    all: unset; cursor: pointer; color: var(--danger); font-size: 12px;
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  }
+
+  /* Meetings */
+  .meeting-row { cursor: pointer; }
+  .meeting-row:hover { background: var(--panel-2); }
+  .note-preview { margin-top: 16px; }
+
+  /* Settings */
+  .settings-section { max-width: 560px; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-row .label { font-size: 13px; }
+  .toggle-row .desc { font-size: 12px; color: var(--muted); margin-top: 2px; max-width: 380px; }
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; background: var(--accent-2); color: #04241a;
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    opacity: 0; transform: translateY(8px); transition: all .2s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* Mobile top bar + hamburger (hidden on desktop) */
+  .mobile-topbar {
+    display: none;
+    align-items: center; gap: 14px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 25;
+  }
+  .mobile-topbar button.hamburger {
+    all: unset; cursor: pointer; font-size: 20px; line-height: 1; color: var(--text);
+  }
+  .mobile-topbar .mobile-title { font-weight: 700; font-size: 15px; }
+
+  /* Mobile */
+  @media (max-width: 760px) {
+    .app { display: block; }
+    .mobile-topbar { display: flex; }
+    main { padding: 16px; }
+    .sidebar {
+      display: none;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding: 10px;
+    }
+    .sidebar.open { display: flex; }
+    .brand { display: none; }
+    .sidebar-footer { margin-top: 12px; }
+    .grid-2, .grid-3, .horizon-board { grid-template-columns: 1fr; }
+    .notebook { grid-template-columns: 1fr; height: auto; }
+    .notebook .tree { max-height: 180px; }
+    .status-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .device-tags { flex-wrap: wrap; }
+    .calendar-row { flex-wrap: wrap; }
+    .calendar-row input.label-input, .calendar-row input[type=text] { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-banner">Prototype — not production code</div>
+
+<div class="app">
+  <div class="mobile-topbar">
+    <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
+    <span class="mobile-title" id="mobileTitle">Capture</span>
+  </div>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><span class="dot"></span> Todowai</div>
+    <nav class="navlist" id="navlist">
+      <button data-view="capture" class="active">📝 Capture</button>
+      <button data-view="notebook">📓 Notebook</button>
+      <button data-view="next-action">➡️ Next Action</button>
+      <button data-view="projects">🗂️ Projects</button>
+      <button data-view="horizon">🧭 Horizon</button>
+      <button data-view="meetings">🗓️ Meetings</button>
+      <button data-view="settings">⚙️ Settings</button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sync-row">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncLabel">Synced 2 min ago</span>
+        <button onclick="manualSync()">Sync now</button>
+      </div>
+      <label class="offline-toggle">
+        <input type="checkbox" id="offlineToggle" onchange="toggleOffline()"> Simulate offline
+      </label>
+    </div>
+  </aside>
+
+  <main>
+
+    <!-- CAPTURE -->
+    <section class="view active" id="view-capture">
+      <h1 class="title">Capture</h1>
+      <p class="subtitle">Quick add or edit notes from mobile, browser, or desktop.</p>
+
+      <div class="card">
+        <div class="device-tags">
+          <span class="pill on">🖥️ Desktop</span>
+          <span class="pill">📱 Mobile</span>
+          <span class="pill">🌐 Browser</span>
+        </div>
+        <label>New note</label>
+        <textarea id="captureInput" rows="3" placeholder="Type a thought, task, or observation…">Client X migration: waiting on their API keys before I can start the import script.</textarea>
+        <div class="btn-row">
+          <button class="btn" onclick="addCapture()">Save note</button>
+          <button class="btn secondary" onclick="document.getElementById('captureInput').value=''">Clear</button>
+        </div>
+      </div>
+
+      <h2 style="font-size:14px;color:var(--muted);margin:24px 0 8px;text-transform:uppercase;letter-spacing:.04em;">Recently captured</h2>
+      <div class="card" style="padding:0;">
+        <ul class="list" id="captureList">
+          <li><span>Karasun side project: try the new SVG export path this weekend.</span><span class="meta">Desktop · 2h ago</span></li>
+          <li><span>Winning Ugly — chapter 3 has a good point about shot selection under pressure.</span><span class="meta">Mobile · yesterday</span></li>
+          <li><span>Ask Sun about the Phase 2 mockup review slot.</span><span class="meta">Browser · yesterday</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- NOTEBOOK -->
+    <section class="view" id="view-notebook">
+      <h1 class="title">Notebook</h1>
+      <p class="subtitle">Obsidian-style Markdown workspace · repo: <code>~/vault</code> (existing Obsidian vault) · subfolder: <code>todowai/</code></p>
+
+      <div class="notebook">
+        <div class="tree" id="tree">
+          <div class="folder">todowai/done</div>
+          <button data-note="done1">2026-08-10-shipped-spec-pr.md</button>
+          <div class="folder">todowai/doing</div>
+          <button data-note="doing1" class="active">client-x-migration.md</button>
+          <div class="folder">todowai/backlog</div>
+          <button data-note="backlog1">karasun-svg-export.md</button>
+          <button data-note="backlog2">read-winning-ugly.md</button>
+          <div class="folder">todowai/.ai</div>
+          <button data-note="ai1">2026-08-11-conversation.md</button>
+        </div>
+        <div class="editor" id="editor"><!-- filled by JS --></div>
+      </div>
+    </section>
+
+    <!-- NEXT ACTION -->
+    <section class="view" id="view-next-action">
+      <h1 class="title">Next Action</h1>
+      <p class="subtitle">Your current status, and what the AI suggests doing about it.</p>
+
+      <div class="card status-card">
+        <div>
+          <div class="status-label">Current status</div>
+          <div class="status-value" id="statusValue">☕ Coffee break</div>
+        </div>
+        <button class="btn secondary" onclick="cycleStatus()">Change status</button>
+      </div>
+
+      <div class="card suggestion" id="suggestionCard">
+        <!-- filled by JS -->
+      </div>
+
+      <div class="grid-2" style="margin-top:18px;">
+        <div class="card">
+          <div class="status-label" style="margin-bottom:10px;">Today's plan</div>
+          <ul class="list" id="planList">
+            <li>Draft mockup for PR #7</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="status-label" style="margin-bottom:10px;">Upcoming (read-only, merged from multiple calendars)</div>
+          <ul class="list" id="upcomingList"></ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px;">
+        <div class="status-label" style="margin-bottom:10px;">This Week <span class="meta">(from Horizon)</span></div>
+        <ul class="list" id="thisWeekList"></ul>
+      </div>
+    </section>
+
+    <!-- PROJECTS -->
+    <section class="view" id="view-projects">
+      <h1 class="title">Projects</h1>
+      <p class="subtitle">Large tasks, parallel work, and delegated AI work.</p>
+
+      <div class="grid-3">
+        <div class="card project-card">
+          <div class="name">Todowai App <span class="badge parallel">Phase 2</span></div>
+          <div class="meta">Mockup in progress</div>
+          <div class="progress"><div style="width:35%"></div></div>
+        </div>
+        <div class="card project-card">
+          <div class="name">Client X migration <span class="badge blocked">Blocked</span></div>
+          <div class="meta">Waiting on external API keys</div>
+          <div class="progress"><div style="width:20%"></div></div>
+        </div>
+        <div class="card project-card">
+          <div class="name">Karasun (side project) <span class="badge parallel">Backlog</span></div>
+          <div class="meta">Low priority, picked up in idle moments</div>
+          <div class="progress"><div style="width:60%"></div></div>
+        </div>
+        <div class="card project-card">
+          <div class="name">Spec cleanup <span class="badge ai">AI delegated</span></div>
+          <div class="meta">AI proposed 3 subtasks — pending your review</div>
+          <div class="progress"><div style="width:10%"></div></div>
+          <button class="btn ghost" onclick="switchView('next-action')">Review AI suggestions →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- HORIZON -->
+    <section class="view" id="view-horizon">
+      <h1 class="title">Horizon</h1>
+      <p class="subtitle">Todos and projects grouped by when they should happen — move items yourself, or confirm what the AI proposes.</p>
+
+      <div class="ai-horizon-suggestion" id="horizonSuggestion"></div>
+
+      <div class="horizon-board">
+        <div class="horizon-col" data-horizon="week"><h3>This Week</h3><div class="items" id="col-week"></div></div>
+        <div class="horizon-col" data-horizon="month"><h3>This Month(s)</h3><div class="items" id="col-month"></div></div>
+        <div class="horizon-col" data-horizon="year"><h3>This Year</h3><div class="items" id="col-year"></div></div>
+      </div>
+    </section>
+
+    <!-- MEETINGS -->
+    <section class="view" id="view-meetings">
+      <h1 class="title">Meetings</h1>
+      <p class="subtitle">Plain Markdown notes with a lightweight frontmatter convention.</p>
+
+      <div class="card" style="padding:0;">
+        <ul class="list" id="meetingsList">
+          <li class="meeting-row" data-meeting="m1"><span>Product sync</span><span class="meta">2026-08-11 · Sun, Alex</span></li>
+          <li class="meeting-row" data-meeting="m2"><span>Client X kickoff</span><span class="meta">2026-08-06 · Sun, Client X team</span></li>
+        </ul>
+      </div>
+
+      <div class="card note-preview" id="meetingPreview"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings">
+      <h1 class="title">Settings</h1>
+      <p class="subtitle">Storage and calendar configuration.</p>
+
+      <div class="card settings-section">
+        <label>Git repository path</label>
+        <input type="text" value="~/vault  (existing Obsidian vault)">
+
+        <label>Todowai subfolder</label>
+        <input type="text" value="todowai/">
+
+        <label>Calendar feeds (read-only)</label>
+        <div id="calendarRows"></div>
+        <button class="btn ghost" onclick="addCalendarRow()">+ Add calendar</button>
+
+        <div class="toggle-row" style="margin-top:18px;">
+          <div>
+            <div class="label">Content encryption (GPG)</div>
+            <div class="desc">Not available in v1 — relies on private repo + transport security instead. Planned for a later phase.</div>
+          </div>
+          <span class="pill">Disabled</span>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="showToast()">Save settings</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast">Settings saved</div>
+
+<script>
+  // ---- navigation ----
+  const viewTitles = {
+    capture: 'Capture', notebook: 'Notebook', 'next-action': 'Next Action',
+    projects: 'Projects', horizon: 'Horizon', meetings: 'Meetings', settings: 'Settings'
+  };
+  function switchView(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+    document.querySelectorAll('#navlist button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+    document.getElementById('mobileTitle').textContent = viewTitles[name] || '';
+    closeMobileMenu();
+  }
+  document.getElementById('navlist').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-view]');
+    if (btn) switchView(btn.dataset.view);
+  });
+  function toggleMobileMenu() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('hamburgerBtn').textContent =
+      document.getElementById('sidebar').classList.contains('open') ? '✕' : '☰';
+  }
+  function closeMobileMenu() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('hamburgerBtn').textContent = '☰';
+  }
+
+  // ---- capture ----
+  function addCapture() {
+    const input = document.getElementById('captureInput');
+    const text = input.value.trim();
+    if (!text) return;
+    const list = document.getElementById('captureList');
+    const li = document.createElement('li');
+    li.innerHTML = '<span>' + text.replace(/</g,'&lt;') + '</span><span class="meta">Desktop · just now</span>';
+    list.prepend(li);
+    input.value = '';
+  }
+
+  // ---- notebook ----
+  const notes = {
+    done1: {
+      path: 'todowai/done/2026-08-10-shipped-spec-pr.md',
+      body: '---\ntype: log\ndate: 2026-08-10\n---\n\n# Shipped spec PR\n\nMerged PR #7 with the Phase 1 specification draft.\nAll open questions resolved during review.'
+    },
+    doing1: {
+      path: 'todowai/doing/client-x-migration.md',
+      body: '---\ntype: task\nstatus: doing\nproject: Client X migration\n---\n\n# Client X migration\n\n- [x] Get repo access\n- [ ] Receive API keys from Client X\n- [ ] Write import script\n\nBlocked on API keys as of 2026-08-11.'
+    },
+    backlog1: {
+      path: 'todowai/backlog/karasun-svg-export.md',
+      body: '---\ntype: task\nstatus: backlog\nproject: Karasun\n---\n\n# Karasun — SVG export\n\nTry the new SVG export path. Good candidate for a short\nsession on the phone during a break.'
+    },
+    backlog2: {
+      path: 'todowai/backlog/read-winning-ugly.md',
+      body: '---\ntype: reading\nstatus: backlog\n---\n\n# Read "Winning Ugly"\n\nOne page at a time works fine — good fit for short,\nsituational moments (coffee break, commute).'
+    },
+    ai1: {
+      path: 'todowai/.ai/2026-08-11-conversation.md',
+      body: '---\ntype: ai-conversation\ndate: 2026-08-11\n---\n\n# Conversation — PR #7 spec review\n\nDiscussed and resolved the 7 open questions from the\nPhase 1 specification draft.'
+    }
+  };
+  function renderNote(id) {
+    const n = notes[id];
+    document.getElementById('editor').innerHTML =
+      '<div class="path">' + n.path + '</div><pre>' + n.body.replace(/</g,'&lt;') + '</pre>';
+    document.querySelectorAll('.tree button').forEach(b => b.classList.toggle('active', b.dataset.note === id));
+  }
+  document.getElementById('tree').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-note]');
+    if (btn) renderNote(btn.dataset.note);
+  });
+  renderNote('doing1');
+
+  // ---- next action ----
+  const statuses = [
+    { label: '☕ Coffee break', kind: 'situational' },
+    { label: '🚇 Taking the metro', kind: 'situational' },
+    { label: '💻 Working on: Draft mockup for PR #7', kind: 'task' }
+  ];
+  let statusIdx = 0;
+  const suggestionsSituational = [
+    { tag: 'Quick suggestion', text: '📱 Take a look at the Karasun side project — try the new SVG export path.' },
+    { tag: 'Quick suggestion', text: '📖 Read one page of "Winning Ugly".' }
+  ];
+  const suggestionTask = { tag: 'Next todo', text: 'Review the acceptance criteria in the Todowai specification.' };
+
+  function renderStatus() {
+    const s = statuses[statusIdx];
+    document.getElementById('statusValue').textContent = s.label;
+    renderSuggestion();
+  }
+  function renderSuggestion(pickIdx) {
+    const s = statuses[statusIdx];
+    const card = document.getElementById('suggestionCard');
+    let sug;
+    if (s.kind === 'situational') {
+      sug = suggestionsSituational[pickIdx ?? Math.floor(Math.random() * suggestionsSituational.length)];
+    } else {
+      sug = suggestionTask;
+    }
+    card.dataset.text = sug.text;
+    card.innerHTML =
+      '<div class="tag">' + sug.tag + ' — needs your confirmation</div>' +
+      '<div class="text">' + sug.text + '</div>' +
+      '<div class="btn-row">' +
+        '<button class="btn" onclick="confirmSuggestion()">Confirm</button>' +
+        '<button class="btn ghost" onclick="renderSuggestion()">Suggest something else</button>' +
+      '</div>';
+  }
+  function confirmSuggestion() {
+    const card = document.getElementById('suggestionCard');
+    const text = card.dataset.text;
+    const list = document.getElementById('planList');
+    const li = document.createElement('li');
+    li.className = 'plan-item confirmed';
+    li.textContent = text;
+    list.appendChild(li);
+    card.innerHTML = '<div class="tag">Added to today\'s plan</div>';
+  }
+  function cycleStatus() {
+    statusIdx = (statusIdx + 1) % statuses.length;
+    renderStatus();
+  }
+  renderStatus();
+
+  // ---- meetings ----
+  const meetings = {
+    m1: '---\ntype: meeting\ndate: 2026-08-11\nattendees: [Sun, Alex]\n---\n\n# Product sync\n\n- Reviewed Phase 1 spec, all open questions resolved.\n- Next: kick off Phase 2 mockup.',
+    m2: '---\ntype: meeting\ndate: 2026-08-06\nattendees: [Sun, Client X team]\n---\n\n# Client X kickoff\n\n- Agreed on migration scope.\n- Waiting on API keys before import script can start.'
+  };
+  document.getElementById('meetingsList').addEventListener('click', e => {
+    const row = e.target.closest('.meeting-row');
+    if (!row) return;
+    document.getElementById('meetingPreview').innerHTML =
+      '<pre style="white-space:pre-wrap;font-family:inherit;">' + meetings[row.dataset.meeting].replace(/</g,'&lt;') + '</pre>';
+  });
+  document.querySelector('.meeting-row').click();
+
+  // ---- calendars (settings) + upcoming (next action) ----
+  let calendars = [
+    { label: 'Work', url: 'https://calendar.google.com/calendar/ical/…/work-basic.ics' },
+    { label: 'Personal', url: 'https://calendar.google.com/calendar/ical/…/personal-basic.ics' }
+  ];
+  const upcomingEvents = [
+    { when: '15:00', text: 'Product sync', source: 'Work' },
+    { when: 'Tomorrow 09:30', text: 'Dentist', source: 'Personal' },
+    { when: 'Fri 12:30', text: 'Team lunch', source: 'Work' }
+  ];
+  function renderCalendarRows() {
+    const wrap = document.getElementById('calendarRows');
+    wrap.innerHTML = calendars.map((c, i) =>
+      '<div class="calendar-row">' +
+        '<input type="text" class="label-input" value="' + c.label + '" onchange="calendars[' + i + '].label=this.value">' +
+        '<input type="text" value="' + c.url + '" onchange="calendars[' + i + '].url=this.value">' +
+        '<button class="remove" onclick="removeCalendarRow(' + i + ')">Remove</button>' +
+      '</div>'
+    ).join('');
+  }
+  function addCalendarRow() {
+    calendars.push({ label: 'New calendar', url: '' });
+    renderCalendarRows();
+  }
+  function removeCalendarRow(i) {
+    calendars.splice(i, 1);
+    renderCalendarRows();
+  }
+  function renderUpcoming() {
+    document.getElementById('upcomingList').innerHTML = upcomingEvents.map(e =>
+      '<li>' + e.when + ' — ' + e.text + '<span class="meta">' + e.source + '</span></li>'
+    ).join('');
+  }
+  renderCalendarRows();
+  renderUpcoming();
+
+  // ---- horizon ----
+  let horizonItems = [
+    { id: 'h1', title: 'Draft mockup for PR #7', kind: 'todo', horizon: 'week' },
+    { id: 'h2', title: 'Client X migration', kind: 'project', horizon: 'week' },
+    { id: 'h3', title: 'Karasun — SVG export', kind: 'todo', horizon: 'month' },
+    { id: 'h4', title: 'Learn Tauri packaging for desktop build', kind: 'todo', horizon: 'month' },
+    { id: 'h5', title: 'Todowai App', kind: 'project', horizon: 'year' },
+    { id: 'h6', title: 'Read "Winning Ugly"', kind: 'todo', horizon: 'year' }
+  ];
+  const horizonOrder = ['week', 'month', 'year'];
+  const horizonLabel = { week: 'This Week', month: 'This Month(s)', year: 'This Year' };
+
+  function renderHorizon() {
+    horizonOrder.forEach(h => {
+      const col = document.getElementById('col-' + h);
+      const items = horizonItems.filter(i => i.horizon === h);
+      col.innerHTML = items.map(i => {
+        const idx = horizonOrder.indexOf(i.horizon);
+        const prev = horizonOrder[idx - 1];
+        const next = horizonOrder[idx + 1];
+        return '<div class="horizon-item">' +
+          '<div class="item-title">' + (i.kind === 'project' ? '🗂️ ' : '☑️ ') + i.title + '</div>' +
+          '<div class="move-row">' +
+            '<button ' + (!prev ? 'disabled' : '') + ' onclick="moveHorizonItem(\'' + i.id + '\',\'' + prev + '\')">← ' + (prev ? horizonLabel[prev] : '') + '</button>' +
+            '<button ' + (!next ? 'disabled' : '') + ' onclick="moveHorizonItem(\'' + i.id + '\',\'' + next + '\')">' + (next ? horizonLabel[next] : '') + ' →</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') || '<div class="meta" style="padding:8px;">Nothing here</div>';
+    });
+  }
+  function moveHorizonItem(id, to) {
+    if (!to) return;
+    const item = horizonItems.find(i => i.id === id);
+    if (item) item.horizon = to;
+    renderHorizon();
+    renderThisWeek();
+  }
+  function renderThisWeek() {
+    const items = horizonItems.filter(i => i.horizon === 'week');
+    document.getElementById('thisWeekList').innerHTML = items.map(i =>
+      '<li>' + (i.kind === 'project' ? '🗂️ ' : '☑️ ') + i.title + '</li>'
+    ).join('') || '<li class="meta">Nothing planned this week</li>';
+  }
+  function renderHorizonSuggestion() {
+    const box = document.getElementById('horizonSuggestion');
+    box.innerHTML =
+      '<span class="tag">AI suggestion — needs your confirmation</span>' +
+      '"Karasun — SVG export" has been in This Month(s) for 3 weeks without progress. Move it to This Year?' +
+      '<div class="btn-row">' +
+        '<button class="btn" onclick="acceptHorizonSuggestion()">Confirm</button>' +
+        '<button class="btn ghost" onclick="dismissHorizonSuggestion()">Dismiss</button>' +
+      '</div>';
+  }
+  function acceptHorizonSuggestion() {
+    moveHorizonItem('h3', 'year');
+    dismissHorizonSuggestion();
+  }
+  function dismissHorizonSuggestion() {
+    document.getElementById('horizonSuggestion').innerHTML = '';
+  }
+  renderHorizon();
+  renderHorizonSuggestion();
+  renderThisWeek();
+
+  // ---- settings ----
+  function showToast() {
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  // ---- sync indicator ----
+  let offline = false;
+  function toggleOffline() {
+    offline = document.getElementById('offlineToggle').checked;
+    const dot = document.getElementById('syncDot');
+    const label = document.getElementById('syncLabel');
+    if (offline) {
+      dot.classList.add('offline');
+      label.textContent = 'Offline — local changes saved, will retry';
+    } else {
+      dot.classList.remove('offline');
+      label.textContent = 'Synced just now';
+    }
+  }
+  function manualSync() {
+    if (offline) { showToast(); return; }
+    document.getElementById('syncLabel').textContent = 'Synced just now';
+  }
+</script>
+
+</body>
+</html>
