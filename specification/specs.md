@@ -37,12 +37,13 @@ Todowai is a personal productivity application that helps a user decide what to 
 - **As an** individual user, **I want to** move an item between horizons myself, **so that** I can re-prioritize as things change.
 - **As an** individual user, **I want the AI to** suggest moving an item between horizons and confirm it with me, **so that** my horizons stay realistic without the AI silently reorganizing my plan.
 - **As an** individual user, **I want to** connect more than one read-only calendar feed, **so that** events from multiple calendars (e.g. work and personal) are reflected in what's upcoming.
+- **As an** individual user, **I want to** turn a captured note into a specific item (todo, meeting, status, or project note) either by choosing the type myself, or by letting the AI propose a fully-drafted, editable item, **so that** I can file captures quickly with as much or as little AI help as I want.
 
 ---
 
 ## Screens / Views [CONFIRMED]
 
-- **Capture view:** a quick way to add or edit notes from mobile, browser, and desktop contexts.
+- **Capture view:** a quick way to add or edit notes from mobile, browser, and desktop contexts. Each captured note can be filed manually (user picks the type: todo/meeting/status/project note) or via an AI-proposed draft (type, title, and content pre-filled); either way the item stays in an editable draft until the user explicitly saves it into the Notebook.
 - **Notebook view:** an Obsidian-style Markdown workspace containing what the user has done, is doing, and wants to do.
 - **Next action view:** shows the user's current status (task or situational context) and the AI's proposed next todo, which the user confirms or rejects before it's treated as decided.
 - **Project tracking view:** a place to follow large tasks, parallel work, and delegated AI work.
@@ -72,6 +73,9 @@ Todowai is a personal productivity application that helps a user decide what to 
 - Todos and projects can be tagged with a horizon (week / month(s) / year) and viewed grouped by that horizon.
 - The user can move an item between horizons manually; the AI can propose moving an item between horizons, but the move only takes effect after explicit user confirmation.
 - Settings supports configuring one or more read-only calendar feed URLs, each with a label; the upcoming/calendar view merges and labels events from all configured feeds.
+- From a captured note, the user can either manually pick a destination type (todo / meeting / status / project note), or ask the AI to propose one.
+- When the AI proposes a classification, it drafts an actual editable item (title, frontmatter, content) — not just a label — that the user can adjust before it's saved.
+- Nothing is filed into the Notebook without explicit user confirmation, whether manually classified or AI-drafted.
 
 ---
 

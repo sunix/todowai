@@ -6,7 +6,7 @@ Navigation is a single-page app driven by the left sidebar; each screen below is
 
 | Screen | Element ID | Status | Notes |
 |---|---|---|---|
-| Capture | `#view-capture` | Draft | Quick-add note form + device tags (desktop/mobile/browser) + recently-captured list. Adding a note updates the list live. |
+| Capture | `#view-capture` | Draft | Quick-add note form + device tags (desktop/mobile/browser) + recently-captured list. Each captured item offers "File it myself" (blank editable draft) or "Let AI propose" (pre-filled editable draft with type/title/content); saving either removes it from the list and files it into the Notebook. |
 | Notebook | `#view-notebook` | Draft | Obsidian-style file tree (`todowai/done`, `doing`, `backlog`, `.ai`) + markdown preview pane. Click a file to load it. Repo/subfolder shown in the subtitle to reflect the configurable-repo decision. |
 | Next Action | `#view-next-action` | Draft | Current-status card (cycles between task and situational statuses via "Change status"), AI suggestion card requiring explicit Confirm, "Today's plan" list, and a read-only "Upcoming" list representing the calendar feed. |
 | Projects | `#view-projects` | Draft | Cards for large tasks / parallel work / AI-delegated work, with status badges and progress bars. Links back to Next Action to review AI suggestions. |
@@ -19,6 +19,7 @@ Navigation is a single-page app driven by the left sidebar; each screen below is
 ## Review checklist
 
 - [ ] Screens match the six from `specification/specs.md`
+- [ ] Capture's manual vs. AI-proposed draft flow is clear and both stay editable before saving
 - [ ] Next Action flow reflects "AI proposes, human confirms" from the acceptance criteria
 - [ ] Situational-status suggestions (coffee break / commute → small backlog item) read naturally
 - [ ] Horizon moves (manual + AI-suggested, confirm/dismiss) behave as expected

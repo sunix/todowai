@@ -330,11 +330,26 @@
 
       <h2 style="font-size:14px;color:var(--muted);margin:24px 0 8px;text-transform:uppercase;letter-spacing:.04em;">Recently captured</h2>
       <div class="card" style="padding:0;">
-        <ul class="list" id="captureList">
-          <li><span>Karasun side project: try the new SVG export path this weekend.</span><span class="meta">Desktop · 2h ago</span></li>
-          <li><span>Winning Ugly — chapter 3 has a good point about shot selection under pressure.</span><span class="meta">Mobile · yesterday</span></li>
-          <li><span>Ask Sun about the Phase 2 mockup review slot.</span><span class="meta">Browser · yesterday</span></li>
-        </ul>
+        <ul class="list" id="captureList"></ul>
+      </div>
+
+      <div class="card" id="draftPanel" style="display:none; margin-top:16px; border-color:var(--accent);">
+        <div class="status-label" id="draftModeLabel" style="margin-bottom:12px;">Manual</div>
+        <label>Type</label>
+        <select id="draftType">
+          <option value="todo">Todo</option>
+          <option value="meeting">Meeting</option>
+          <option value="status">Current status</option>
+          <option value="project">Project note</option>
+        </select>
+        <label>Title</label>
+        <input type="text" id="draftTitle">
+        <label>Content (editable before saving)</label>
+        <textarea id="draftContent" rows="6"></textarea>
+        <div class="btn-row">
+          <button class="btn" onclick="saveDraft()">Save to Notebook</button>
+          <button class="btn secondary" onclick="cancelDraft()">Cancel</button>
+        </div>
       </div>
     </section>
 
@@ -479,7 +494,7 @@
         </div>
 
         <div class="btn-row">
-          <button class="btn" onclick="showToast()">Save settings</button>
+          <button class="btn" onclick="showToast('Settings saved')">Save settings</button>
         </div>
       </div>
     </section>
@@ -517,16 +532,85 @@
   }
 
   // ---- capture ----
+  let captureIdSeq = 3;
+  let captures = [
+    {
+      id: 'c1', text: 'Karasun side project: try the new SVG export path this weekend.', device: 'Desktop', when: '2h ago',
+      aiType: 'todo', aiTitle: 'Karasun — SVG export',
+      aiBody: '---\ntype: task\nstatus: backlog\nproject: Karasun\n---\n\n# Karasun — SVG export\n\nTry the new SVG export path this weekend.'
+    },
+    {
+      id: 'c2', text: 'Winning Ugly — chapter 3 has a good point about shot selection under pressure.', device: 'Mobile', when: 'yesterday',
+      aiType: 'todo', aiTitle: 'Read "Winning Ugly" — chapter 3 note',
+      aiBody: '---\ntype: reading\nstatus: backlog\n---\n\n# Winning Ugly — chapter 3\n\nGood point about shot selection under pressure.'
+    },
+    {
+      id: 'c3', text: 'Ask Sun about the Phase 2 mockup review slot.', device: 'Browser', when: 'yesterday',
+      aiType: 'meeting', aiTitle: 'Phase 2 mockup review slot',
+      aiBody: '---\ntype: meeting\ndate: TBD\nattendees: [Sun]\n---\n\n# Phase 2 mockup review slot\n\nAsk Sun about scheduling the review.'
+    }
+  ];
+  let draftCaptureId = null;
+
+  function renderCaptureList() {
+    document.getElementById('captureList').innerHTML = captures.map(c =>
+      '<li style="flex-direction:column; align-items:stretch; gap:8px;">' +
+        '<div style="display:flex; justify-content:space-between; gap:10px;">' +
+          '<span>' + c.text.replace(/</g,'&lt;') + '</span>' +
+          '<span class="meta" style="white-space:nowrap;">' + c.device + ' · ' + c.when + '</span>' +
+        '</div>' +
+        '<div class="btn-row" style="margin-top:0;">' +
+          '<button class="btn ghost" onclick="openDraft(\'' + c.id + '\',\'manual\')">File it myself</button>' +
+          '<button class="btn ghost" onclick="openDraft(\'' + c.id + '\',\'ai\')">Let AI propose</button>' +
+        '</div>' +
+      '</li>'
+    ).join('') || '<li class="meta" style="padding:12px;">Nothing waiting to be filed</li>';
+  }
+
+  function openDraft(id, mode) {
+    const c = captures.find(x => x.id === id);
+    if (!c) return;
+    draftCaptureId = id;
+    document.getElementById('draftModeLabel').textContent =
+      mode === 'ai' ? '✨ AI-proposed draft — edit anything before saving' : 'Manual — choose the type and fill in the details';
+    if (mode === 'ai') {
+      document.getElementById('draftType').value = c.aiType;
+      document.getElementById('draftTitle').value = c.aiTitle;
+      document.getElementById('draftContent').value = c.aiBody;
+    } else {
+      document.getElementById('draftType').value = 'todo';
+      document.getElementById('draftTitle').value = c.text.slice(0, 48);
+      document.getElementById('draftContent').value = '---\ntype: todo\nstatus: backlog\n---\n\n' + c.text;
+    }
+    const panel = document.getElementById('draftPanel');
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function cancelDraft() {
+    draftCaptureId = null;
+    document.getElementById('draftPanel').style.display = 'none';
+  }
+  function saveDraft() {
+    captures = captures.filter(c => c.id !== draftCaptureId);
+    renderCaptureList();
+    document.getElementById('draftPanel').style.display = 'none';
+    showToast('Saved to Notebook');
+  }
+
   function addCapture() {
     const input = document.getElementById('captureInput');
     const text = input.value.trim();
     if (!text) return;
-    const list = document.getElementById('captureList');
-    const li = document.createElement('li');
-    li.innerHTML = '<span>' + text.replace(/</g,'&lt;') + '</span><span class="meta">Desktop · just now</span>';
-    list.prepend(li);
+    captureIdSeq++;
+    captures.unshift({
+      id: 'c' + captureIdSeq, text, device: 'Desktop', when: 'just now',
+      aiType: 'todo', aiTitle: text.slice(0, 48),
+      aiBody: '---\ntype: todo\nstatus: backlog\n---\n\n' + text
+    });
+    renderCaptureList();
     input.value = '';
   }
+  renderCaptureList();
 
   // ---- notebook ----
   const notes = {
@@ -729,8 +813,9 @@
   renderThisWeek();
 
   // ---- settings ----
-  function showToast() {
+  function showToast(msg) {
     const t = document.getElementById('toast');
+    if (msg) t.textContent = msg;
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 1800);
   }
