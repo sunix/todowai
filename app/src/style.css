@@ -39,6 +39,9 @@ body {
   cursor: pointer;
   padding: 10px 12px;
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 14px;
   color: var(--muted);
 }
@@ -51,6 +54,11 @@ body {
 .sidebar button.active {
   background: var(--accent);
   color: white;
+}
+
+.sidebar .icon {
+  width: 1.2em;
+  text-align: center;
 }
 
 main {

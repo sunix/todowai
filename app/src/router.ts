@@ -7,14 +7,14 @@ export type ScreenId =
   | 'meetings'
   | 'settings';
 
-export const SCREENS: { id: ScreenId; label: string }[] = [
-  { id: 'capture', label: 'Capture' },
-  { id: 'notebook', label: 'Notebook' },
-  { id: 'next-action', label: 'Next Action' },
-  { id: 'projects', label: 'Projects' },
-  { id: 'horizon', label: 'Horizon' },
-  { id: 'meetings', label: 'Meetings' },
-  { id: 'settings', label: 'Settings' },
+export const SCREENS: { id: ScreenId; label: string; icon: string }[] = [
+  { id: 'capture', label: 'Capture', icon: '📝' },
+  { id: 'notebook', label: 'Notebook', icon: '📓' },
+  { id: 'next-action', label: 'Next Action', icon: '➡️' },
+  { id: 'projects', label: 'Projects', icon: '🗂️' },
+  { id: 'horizon', label: 'Horizon', icon: '🧭' },
+  { id: 'meetings', label: 'Meetings', icon: '🗓️' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
 ];
 
 const DEFAULT_SCREEN: ScreenId = 'capture';

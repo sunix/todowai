@@ -15,7 +15,7 @@ const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const main = document.querySelector<HTMLElement>('#main')!;
 
 sidebar.innerHTML = SCREENS.map(
-  (screen) => `<button data-screen="${screen.id}">${screen.label}</button>`
+  (screen) => `<button data-screen="${screen.id}"><span class="icon">${screen.icon}</span> ${screen.label}</button>`
 ).join('');
 
 sidebar.addEventListener('click', (event) => {
