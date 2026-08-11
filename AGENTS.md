@@ -3,7 +3,7 @@ title: Todowai
 description: "A privacy-first AI-assisted note and task companion for deciding what to do next."
 sultan_phase: 2 — Mockup
 iterations: 1
-mockup_url: "" # GitHub Pages link, filled in once the mockup is deployed
+mockup_url: "https://sunix.github.io/todowai/"
 ---
 
 # Agent Instructions
