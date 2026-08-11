@@ -7,6 +7,7 @@
 | Issue | Title | Agent | PR | Status |
 |-------|-------|-------|----|--------|
 | [#9](https://github.com/sunix/todowai/issues/9) | Scaffold PWA project shell | Claude | [#53](https://github.com/sunix/todowai/pull/53) | Merged |
+| [#52](https://github.com/sunix/todowai/issues/52) | PWA PR preview via Surge (/preview comment) | Claude | [#54](https://github.com/sunix/todowai/pull/54) | In Review |
 
 <!--
 Status values: In Progress | In Review | Merged
