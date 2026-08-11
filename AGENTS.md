@@ -169,6 +169,19 @@ The agent will recognise the skill name, load the corresponding file from `.agen
 
 ---
 
+## Commit & PR Conventions
+
+Required from Phase 3 onward, since `release-please` (see `plan/deployment.md`) computes version bumps from commit history on `main`:
+
+- **Conventional Commits** for every commit message and pull request title: `<type>[optional scope]: <description>` (e.g. `feat: add capture drafting`, `fix(sync): handle offline pull failure`).
+  - `feat:` → minor version bump
+  - `fix:` → patch version bump
+  - `feat!:` or a `BREAKING CHANGE:` footer → major version bump
+  - `chore:`, `docs:`, `ci:`, `refactor:`, `test:` → no version bump (still recorded in the changelog)
+- **One logical commit per pull request** — squash intermediate commits before opening or updating a PR, so `main`'s history stays release-please-friendly.
+
+---
+
 ## Constraints
 
 - Keep personal notes and task history as private as possible.
