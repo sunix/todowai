@@ -179,6 +179,9 @@ Required from Phase 3 onward, since `release-please` (see `plan/deployment.md`) 
   - `feat!:` or a `BREAKING CHANGE:` footer → major version bump
   - `chore:`, `docs:`, `ci:`, `refactor:`, `test:` → no version bump (still recorded in the changelog)
 - **One logical commit per pull request** — squash intermediate commits before opening or updating a PR, so `main`'s history stays release-please-friendly.
+  - Exception: once a PR branch already has commits pushed (e.g. review feedback, a previous update), don't squash/force-push over them — append new commits instead, so reviewers keep a stable history to diff against.
+- **Preview builds** — after pushing a commit to a PR, comment `/preview` on the PR to trigger the Surge preview deployment (see `.github/workflows/preview-pr.yml`). The bot replies with a preview link once the build finishes.
+- **Post-merge recap** — once a PR is merged, add a recap comment on the GitHub issue it closes, summarising what shipped and including screenshots when the change is visual (UI, mockup, etc.).
 
 ---
 
