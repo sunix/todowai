@@ -275,17 +275,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # No cache-from/cache-to here: the type=gha cache backend failed twice in a row with
+      # "error writing layer blob: failed to reserve cache" during the separate "exporting to
+      # GitHub Actions Cache" step — notably *after* the image itself had already built and
+      # pushed successfully. That's a known flaky spot for buildx's GHA cache backend on larger
+      # builds; a registry-based cache (type=registry) would be the next thing to try if build
+      # time becomes a real problem, but a plain uncached build that reliably succeeds beats a
+      # faster one that fails on its own optimization step.
       - name: Build and push per-PR preview image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:pr-${{ env.PR_NUMBER }}
-          # mode=min (the default) only caches the final image's layers, not every
-          # intermediate layer of every build stage — mode=max was pushing the runner's
-          # local cache storage over the edge during the Rust build above.
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
 
       - name: Update PR comment with docker run command
         if: success()
