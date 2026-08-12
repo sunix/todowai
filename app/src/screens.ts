@@ -1,5 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { RepositoryChange, RepositoryHistoryEntry } from './repository';
+import type { RepositoryChange, RepositoryHistoryEntry, SyncStatus } from './repository';
 import type { ScreenId } from './router';
 
 const TITLES: Record<ScreenId, string> = {
@@ -42,6 +42,11 @@ type SettingsScreenState = {
   commitAuthorName: string;
   commitAuthorEmail: string;
   commitMessage: string;
+  remoteUrl: string;
+  remoteUsername: string;
+  remoteToken: string;
+  syncStatus: SyncStatus | 'idle' | 'syncing';
+  syncMessage: string;
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -68,6 +73,11 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     commitAuthorName: 'Todowai User',
     commitAuthorEmail: 'todowai@example.invalid',
     commitMessage: 'feat: update Todowai note',
+    remoteUrl: '',
+    remoteUsername: '',
+    remoteToken: '',
+    syncStatus: 'idle' as const,
+    syncMessage: 'No remote configured.',
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -105,6 +115,8 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
           )
           .join('')
       : '<li class="empty-state">No pending changes.</li>';
+
+  const syncStatusClass = viewState.syncStatus === 'idle' ? '' : ` sync-status-${viewState.syncStatus}`;
 
   return `
     <h1 class="title">${TITLES.settings}</h1>
@@ -147,6 +159,24 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
             ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
             : ''
         }
+      </article>
+
+      <article class="card">
+        <h2 class="section-title">Remote sync</h2>
+        <p class="section-copy">
+          Optional: connect a git remote to sync across devices. Pulls happen on open and periodically in the
+          background; commits push after a short debounce. Credentials are kept in memory only, never persisted.
+        </p>
+        <label class="field-label" for="remote-url">Remote URL</label>
+        <input class="text-input" id="remote-url" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <label class="field-label" for="remote-username">Username</label>
+        <input class="text-input" id="remote-username" value="${escapeHtmlAttribute(viewState.remoteUsername)}" placeholder="git">
+        <label class="field-label" for="remote-token">Personal access token</label>
+        <input class="text-input" type="password" id="remote-token" value="${escapeHtmlAttribute(viewState.remoteToken)}" placeholder="•••••••••••">
+        <div class="button-row">
+          <button class="primary-button" id="sync-now-button" ${viewState.remoteUrl.trim() ? '' : 'disabled'}>Sync now</button>
+        </div>
+        <p class="sync-message${syncStatusClass}">${escapeHtml(viewState.syncMessage)}</p>
       </article>
 
       <div class="settings-grid">

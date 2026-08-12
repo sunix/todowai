@@ -302,3 +302,26 @@ main {
   color: var(--text);
   word-break: break-all;
 }
+
+.sync-message {
+  color: var(--muted);
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.sync-message.sync-status-syncing {
+  color: var(--accent);
+}
+
+.sync-message.sync-status-synced {
+  color: #8ee59d;
+}
+
+.sync-message.sync-status-offline {
+  color: #f0c674;
+}
+
+.sync-message.sync-status-conflict,
+.sync-message.sync-status-error {
+  color: #ff9b9b;
+}

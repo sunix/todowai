@@ -1,4 +1,5 @@
 import * as git from 'isomorphic-git';
+import http from 'isomorphic-git/http/web';
 
 const VIRTUAL_REPO_ROOT = '/repo';
 const HISTORY_DEPTH = 10;
@@ -72,6 +73,19 @@ export type RepositoryWriteResult = {
   pendingChanges: RepositoryChange[];
 };
 
+export type RemoteConfig = {
+  url: string;
+  username: string;
+  token: string;
+};
+
+export type SyncStatus = 'synced' | 'offline' | 'conflict' | 'error';
+
+export type SyncResult = {
+  status: SyncStatus;
+  message: string;
+};
+
 export function supportsFileSystemAccess(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
@@ -96,6 +110,7 @@ export class RepositoryController {
   // vault), but Todowai will not create new files there or commit external deletions of them —
   // see writeTextFile and classifyPendingChanges.
   private subfolder: string = DEFAULT_SUBFOLDER;
+  private remote: RemoteConfig | null = null;
 
   private constructor(directoryHandle: FileSystemDirectoryHandle, fs: BrowserFs) {
     this.directoryHandle = directoryHandle;
@@ -109,6 +124,59 @@ export class RepositoryController {
 
   get subfolderName(): string {
     return this.subfolder;
+  }
+
+  setRemote(remote: RemoteConfig | null): void {
+    const trimmedUrl = remote?.url.trim() ?? '';
+    this.remote = trimmedUrl ? { url: trimmedUrl, username: remote!.username, token: remote!.token } : null;
+  }
+
+  get hasRemote(): boolean {
+    return this.remote !== null;
+  }
+
+  // Never throws — pull failures must not block the UI (per the offline-first NFR), so every
+  // outcome (including "no remote configured") is a normal SyncResult, not a rejected promise.
+  async pull(authorName: string, authorEmail: string): Promise<SyncResult> {
+    if (!this.remote) {
+      return { status: 'error', message: 'No remote configured.' };
+    }
+
+    try {
+      await git.pull({
+        fs: this.fs,
+        http,
+        dir: VIRTUAL_REPO_ROOT,
+        cache: this.cache,
+        url: this.remote.url,
+        singleBranch: true,
+        author: { name: authorName || 'Todowai User', email: authorEmail || 'todowai@example.invalid' },
+        onAuth: () => ({ username: this.remote!.username, password: this.remote!.token }),
+      });
+      return { status: 'synced', message: 'Synced just now.' };
+    } catch (error) {
+      return classifySyncError(error);
+    }
+  }
+
+  async push(): Promise<SyncResult> {
+    if (!this.remote) {
+      return { status: 'error', message: 'No remote configured.' };
+    }
+
+    try {
+      await git.push({
+        fs: this.fs,
+        http,
+        dir: VIRTUAL_REPO_ROOT,
+        cache: this.cache,
+        url: this.remote.url,
+        onAuth: () => ({ username: this.remote!.username, password: this.remote!.token }),
+      });
+      return { status: 'synced', message: 'Synced just now.' };
+    } catch (error) {
+      return classifySyncError(error);
+    }
   }
 
   static async openWithPicker(): Promise<RepositoryController> {
@@ -332,6 +400,35 @@ function isInsideSubfolder(filepath: string, subfolder: string): boolean {
 function isBrowsablePath(filepath: string): boolean {
   const topLevelName = filepath.split('/')[0]?.toLowerCase();
   return !PROTECTED_TOP_LEVEL_NAMES.has(topLevelName ?? '');
+}
+
+function classifySyncError(error: unknown): SyncResult {
+  if (
+    error instanceof git.Errors.MergeConflictError ||
+    error instanceof git.Errors.MergeNotSupportedError ||
+    error instanceof git.Errors.FastForwardError
+  ) {
+    return {
+      status: 'conflict',
+      message: 'Local and remote history could not be merged automatically — resolve manually for now.',
+    };
+  }
+
+  if (isNetworkError(error)) {
+    return { status: 'offline', message: 'Offline — local changes are saved and will sync once back online.' };
+  }
+
+  return { status: 'error', message: error instanceof Error ? error.message : 'Sync failed for an unknown reason.' };
+}
+
+function isNetworkError(error: unknown): boolean {
+  // A real HTTP response (even an error one, e.g. 401/404) reached the server, so it's not a
+  // connectivity problem — only the absence of any response (a thrown TypeError from fetch, which
+  // is how browsers report "no network"/DNS failure/CORS) counts as offline here.
+  if (error instanceof git.Errors.HttpError || error instanceof git.Errors.SmartHttpError) {
+    return false;
+  }
+  return error instanceof TypeError;
 }
 
 function filesFromStatusMatrix(statusMatrix: Awaited<ReturnType<typeof git.statusMatrix>>): string[] {

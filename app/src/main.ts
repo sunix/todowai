@@ -1,8 +1,15 @@
 import './style.css';
 import { topLevelFolders } from './file-tree';
-import { RepositoryController, supportsFileSystemAccess } from './repository';
+import { RepositoryController, supportsFileSystemAccess, type SyncStatus } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import { renderScreen, renderSettingsScreen } from './screens';
+import { createSyncScheduler, type SyncScheduler } from './sync-scheduler';
+
+// A commit is a discrete, meaningful unit of work, so pushing it is debounced only to batch
+// several commits made in quick succession into one push, not to wait out mid-edit typing (saves
+// don't push at all — there's nothing to push until something is committed).
+const PUSH_DEBOUNCE_MS = 4000;
+const BACKGROUND_PULL_INTERVAL_MS = 5 * 60 * 1000;
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -33,7 +40,14 @@ type AppState = {
   commitAuthorName: string;
   commitAuthorEmail: string;
   commitMessage: string;
+  remoteUrl: string;
+  remoteUsername: string;
+  remoteToken: string;
+  syncStatus: SyncStatus | 'idle' | 'syncing';
+  syncMessage: string;
 };
+
+let scheduler: SyncScheduler | null = null;
 
 const state: AppState = {
   repository: null,
@@ -57,6 +71,13 @@ const state: AppState = {
   commitAuthorName: 'Todowai User',
   commitAuthorEmail: 'todowai@example.invalid',
   commitMessage: 'feat: update Todowai note',
+  // Remote credentials are in-memory only too — nothing persists across reloads yet, consistent
+  // with everything else (which folder was opened, the subfolder name, etc.).
+  remoteUrl: '',
+  remoteUsername: '',
+  remoteToken: '',
+  syncStatus: 'idle',
+  syncMessage: 'No remote configured.',
 };
 
 sidebar.innerHTML = SCREENS.map(
@@ -89,6 +110,11 @@ function render(): void {
           commitAuthorName: state.commitAuthorName,
           commitAuthorEmail: state.commitAuthorEmail,
           commitMessage: state.commitMessage,
+          remoteUrl: state.remoteUrl,
+          remoteUsername: state.remoteUsername,
+          remoteToken: state.remoteToken,
+          syncStatus: state.syncStatus,
+          syncMessage: state.syncMessage,
         })
       : renderScreen(screen);
   sidebar.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -124,12 +150,44 @@ function bindSettingsScreen(): void {
       // immediately, rather than a flat list of collapsed top-level entries.
       state.expandedFolders = new Set(topLevelFolders(state.files));
       state.statusMessage = `Opened ${state.folderName}.`;
+
+      applyRemoteConfig();
+      scheduler?.stop();
+      scheduler = createSyncScheduler({
+        pull: pullInBackground,
+        push: pushInBackground,
+        pushDebounceMs: PUSH_DEBOUNCE_MS,
+        backgroundPullIntervalMs: BACKGROUND_PULL_INTERVAL_MS,
+      });
+      if (state.repository.hasRemote) {
+        scheduler.start();
+      }
     });
   });
 
   main.querySelector<HTMLInputElement>('#todowai-subfolder')?.addEventListener('input', (event) => {
     state.subfolder = (event.target as HTMLInputElement).value;
     state.repository?.setSubfolder(state.subfolder);
+  });
+
+  main.querySelector<HTMLInputElement>('#remote-url')?.addEventListener('input', (event) => {
+    state.remoteUrl = (event.target as HTMLInputElement).value;
+    applyRemoteConfig();
+  });
+
+  main.querySelector<HTMLInputElement>('#remote-username')?.addEventListener('input', (event) => {
+    state.remoteUsername = (event.target as HTMLInputElement).value;
+    applyRemoteConfig();
+  });
+
+  main.querySelector<HTMLInputElement>('#remote-token')?.addEventListener('input', (event) => {
+    state.remoteToken = (event.target as HTMLInputElement).value;
+    applyRemoteConfig();
+  });
+
+  main.querySelector<HTMLButtonElement>('#sync-now-button')?.addEventListener('click', () => {
+    scheduler?.pullNow();
+    scheduler?.requestPush({ immediate: true });
   });
 
   main.querySelectorAll<HTMLButtonElement>('[data-toggle-folder]').forEach((button) => {
@@ -227,8 +285,83 @@ function bindSettingsScreen(): void {
       setLabel('Loading history…');
       state.history = await state.repository!.recentHistory();
       state.statusMessage = `Committed ${result.oid.slice(0, 7)}.`;
+
+      // A commit is the only thing that can actually be pushed (there's nothing to push until
+      // something is committed) — debounced so several commits made in quick succession collapse
+      // into one push rather than firing one per commit.
+      scheduler?.requestPush({ immediate: false });
     });
   });
+}
+
+function applyRemoteConfig(): void {
+  if (!state.repository) {
+    return;
+  }
+
+  const hadRemote = state.repository.hasRemote;
+  state.repository.setRemote(
+    state.remoteUrl.trim()
+      ? { url: state.remoteUrl, username: state.remoteUsername, token: state.remoteToken }
+      : null
+  );
+  const hasRemote = state.repository.hasRemote;
+
+  if (hasRemote && !hadRemote) {
+    state.syncMessage = 'Remote configured.';
+    scheduler?.start();
+    render();
+  } else if (!hasRemote && hadRemote) {
+    state.syncStatus = 'idle';
+    state.syncMessage = 'No remote configured.';
+    scheduler?.stop();
+    render();
+  }
+}
+
+// Never blocks the UI and never throws — runRepositoryAction isn't used here on purpose: sync
+// runs silently in the background (via the scheduler's timers), not as a foreground action the
+// user is waiting on, so it must not disable buttons or show the busy spinner.
+async function pullInBackground(): Promise<void> {
+  if (!state.repository) {
+    return;
+  }
+
+  state.syncStatus = 'syncing';
+  state.syncMessage = 'Syncing…';
+  render();
+
+  const result = await state.repository.pull(state.commitAuthorName, state.commitAuthorEmail);
+  state.syncStatus = result.status;
+  state.syncMessage = result.message;
+
+  if (result.status === 'synced') {
+    // A pull can bring in remote changes, so refresh the working-tree view.
+    const snapshot = await state.repository.snapshot();
+    state.files = snapshot.files;
+    state.pendingChanges = snapshot.pendingChanges;
+    state.history = snapshot.history;
+    if (state.selectedFilePath && snapshot.files.includes(state.selectedFilePath)) {
+      state.selectedFileContent = await state.repository.readTextFile(state.selectedFilePath);
+    }
+  }
+
+  render();
+}
+
+async function pushInBackground(): Promise<void> {
+  if (!state.repository) {
+    return;
+  }
+
+  state.syncStatus = 'syncing';
+  state.syncMessage = 'Syncing…';
+  render();
+
+  const result = await state.repository.push();
+  state.syncStatus = result.status;
+  state.syncMessage = result.message;
+  render();
 }
 
 async function runRepositoryAction(
