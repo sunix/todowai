@@ -38,6 +38,7 @@ Todowai is a personal productivity application that helps a user decide what to 
 - **As an** individual user, **I want the AI to** suggest moving an item between horizons and confirm it with me, **so that** my horizons stay realistic without the AI silently reorganizing my plan.
 - **As an** individual user, **I want to** connect more than one read-only calendar feed, **so that** events from multiple calendars (e.g. work and personal) are reflected in what's upcoming.
 - **As an** individual user, **I want to** turn a captured note into a specific item (todo, meeting, status, or project note) either by choosing the type myself, or by letting the AI propose a fully-drafted, editable item, **so that** I can file captures quickly with as much or as little AI help as I want.
+- **As an** individual user, **I want to** read, reference, and edit my existing notes anywhere in the vault (not just inside Todowai's own subfolder), **so that** Todowai can work with the notes I already have instead of only the ones it creates itself.
 
 ---
 
@@ -62,7 +63,10 @@ Todowai is a personal productivity application that helps a user decide what to 
 - The product supports tracking large tasks, parallel work, and meetings.
 - The product supports workflows where some work can be delegated to AI.
 - The privacy model keeps notes as private as possible.
-- The product works with any user-configured git repository and subfolder, including an existing Obsidian vault, without colliding with the vault's own files (e.g. `.obsidian/`).
+- The product works with any user-configured git repository and subfolder, including an existing Obsidian vault, without colliding with the vault's own files.
+- `.git/` and `.obsidian/` are fully off-limits — never read, shown in the file browser, or written to — since the latter can hold sensitive plugin data and corrupting it would break the user's Obsidian setup.
+- Outside the configured Todowai subfolder, the user can read and edit existing notes anywhere in the vault, but cannot create or delete files there through Todowai — new files Todowai creates always go inside its own subfolder. A file deleted outside the subfolder by another tool is not staged or committed by Todowai; it's outside what Todowai manages.
+- Inside the configured Todowai subfolder, full create/read/update/delete is allowed.
 - The product supports offline editing on each device; conflicting edits are reconciled via git's 3-way merge and surfaced non-blockingly, never halting further editing.
 - The product maintains a current-status field the user can view and set, accepting either a todo/task or a situational context (e.g. "coffee break," "commuting").
 - The AI proposes next todos from the user's status, notes, backlog, and connected calendar feed, and always requires explicit user confirmation before treating a suggestion as decided.
