@@ -17,16 +17,19 @@ Foundational git-backed storage layer everything else depends on.
   - [ ] Can commit and read history via isomorphic-git, no shell-out to a native git binary
 
 - **Settings: configurable git repo path + subfolder** (M) — https://github.com/sunix/todowai/issues/11
-  Implement the Settings screen fields for repo path and Todowai subfolder (e.g. todowai/), supporting pointing at an existing Obsidian vault without colliding with .obsidian/ or other vault content.
-  - [ ] User can select a folder and a subfolder name
-  - [ ] All app reads/writes are confined to the configured subfolder
-  - [ ] Verified no writes ever touch .obsidian/ or files outside the subfolder
+  Implement the Settings screen field for the Todowai subfolder name, and the vault access rules that let Todowai coexist with an existing Obsidian vault: `.git`/`.obsidian` fully off-limits (hidden + blocked); editing existing files anywhere in the vault is allowed; creating/deleting files is confined to the configured subfolder.
+  - [x] User can configure the Todowai subfolder name (defaulting to `todowai`)
+  - [x] `.obsidian/` (and `.git/`) never appear in the file browser and are rejected on any read/write attempt
+  - [x] Editing an existing file outside the configured subfolder succeeds; creating a new one there is rejected with a clear error
+  - [x] A file deleted outside the configured subfolder is not staged or committed by Todowai; full CRUD works as before inside it
 
 - **Offline-first sync engine (pull/push scheduling)** (L) — https://github.com/sunix/todowai/issues/12
-  Implement the sync engine per the NFR: pull before opening a page/main screen and periodically in the background while foregrounded; push immediately after AI edits and debounced after manual edits. Must never block the UI when offline (fail silently, retry in background).
+  Implement the sync engine per the NFR: pull before opening a page/main screen and periodically in the background while foregrounded; push immediately after AI edits and debounced after manual edits. Must never block the UI when offline (fail silently, retry in background). Scope note: no remote-configuration UI exists yet, so it's added here; AI edits don't exist yet either, so the "immediate push" path is verified via a direct test call rather than a real AI feature — see the issue for the full reasoning.
+  - [ ] Settings supports configuring a remote URL and credentials (username/PAT), in-memory only
   - [ ] Pull attempts on page open and on a background interval; failures never block rendering
-  - [ ] AI edits push immediately; manual edits push after a short idle debounce
-  - [ ] Verified behavior with network disabled: app remains usable, queues changes, and syncs once back online
+  - [ ] Shared push entry point with an `immediate` flag: manual edits debounce, a test exercises `immediate: true` directly to stand in for future AI edits
+  - [ ] A merge conflict during pull surfaces as a clear, non-blocking error (full resolution UI is #13)
+  - [ ] Verified behavior with a mocked failing transport: app remains usable, edits still save locally, sync-status indicator reflects offline/retry
 
 - **Non-blocking git 3-way merge conflict handling** (M) — https://github.com/sunix/todowai/issues/13
   Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing.
