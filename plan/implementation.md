@@ -4,35 +4,50 @@ Derived from `specification/specs.md` (Phase 1) and `mockup/README.md` (Phase 2)
 
 ## M1 — Core storage & sync engine
 
-Foundational git-backed storage layer everything else depends on.
+Foundational storage layer everything else depends on. **Reworked following the architecture
+pivot in [ADR-001](../specification/decisions.md)** — see there for the full reasoning. The
+browser-only git engine (isomorphic-git + File System Access API) is superseded by a shared
+Rust core, consumed as a self-hosted backend (bundled with the web UI in one Docker image) and,
+later, via Tauri for desktop/mobile (M8).
 
-- **Scaffold PWA project shell** (S) — https://github.com/sunix/todowai/issues/9
-  Set up the PWA build tooling and a routing shell for the seven screens (Capture, Notebook, Next Action, Projects, Horizon, Meetings, Settings) defined in specification/specs.md.
+- **Scaffold PWA project shell** (S) — https://github.com/sunix/todowai/issues/9 — *Merged.*
+  Set up the PWA build tooling and a routing shell for the seven screens (Capture, Notebook, Next Action, Projects, Horizon, Meetings, Settings) defined in specification/specs.md. This project shell (routing, screens, UI) is unaffected by the architecture pivot and is reused as-is.
   - [x] Project builds and runs locally as an installable PWA
   - [x] Shell navigates between seven empty placeholder screens matching mockup/index.html's structure
 
-- **Integrate isomorphic-git with File System Access API storage adapter** (M) — https://github.com/sunix/todowai/issues/10
-  Wire up isomorphic-git as the sole git engine (per NFR) and implement the desktop-browser storage adapter using the File System Access API to read/write a real folder on disk. Delivered scope grew beyond the original criteria: a "pending changes" view before committing, a collapsible file tree, and a busy indicator with real per-step labels — plus, after real-world testing surfaced 1-2 minute commit times, two rounds of performance work (deduplicating full-tree walks, then replacing them with incremental/scoped `statusMatrix` tracking) that cut FS Access API calls for a single-file commit by ~70x on a simulated 200-file vault.
-  - [x] Can open an existing local git repo folder and read its contents
-  - [x] Can commit and read history via isomorphic-git, no shell-out to a native git binary
+- ~~Integrate isomorphic-git with File System Access API storage adapter — #10~~ **Superseded**, see #59.
+- ~~Settings: configurable git repo path + subfolder — #11~~ **Superseded**, see #60.
+- ~~Offline-first sync engine (pull/push scheduling) — #12~~ **Superseded**, see #62.
 
-- **Settings: configurable git repo path + subfolder** (M) — https://github.com/sunix/todowai/issues/11
-  Implement the Settings screen field for the Todowai subfolder name, and the vault access rules that let Todowai coexist with an existing Obsidian vault: `.git`/`.obsidian` fully off-limits (hidden + blocked); editing existing files anywhere in the vault is allowed; creating/deleting files is confined to the configured subfolder.
-  - [x] User can configure the Todowai subfolder name (defaulting to `todowai`)
-  - [x] `.obsidian/` (and `.git/`) never appear in the file browser and are rejected on any read/write attempt
-  - [x] Editing an existing file outside the configured subfolder succeeds; creating a new one there is rejected with a clear error
-  - [x] A file deleted outside the configured subfolder is not staged or committed by Todowai; full CRUD works as before inside it
+- **Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide)** (L) — https://github.com/sunix/todowai/issues/59
+  Replaces #10 (closed). A shared Rust core implements git/filesystem operations against a real path, compiled into a backend HTTP service bundled with the web UI into a single Docker image — one `docker run` self-hosts both.
+  - [ ] Rust core exposes open/read/write/commit/history via git2-rs or gitoxide against a real filesystem path
+  - [ ] Backend HTTP service exposes these operations locally
+  - [ ] Single Docker image bundles backend + web UI static assets; `docker run` with a mounted repo folder works end-to-end
 
-- **Offline-first sync engine (pull/push scheduling)** (L) — https://github.com/sunix/todowai/issues/12
-  Implement the sync engine per the NFR: pull before opening a page/main screen and periodically in the background while foregrounded; push immediately after AI edits and debounced after manual edits. Must never block the UI when offline (fail silently, retry in background). Scope note: no remote-configuration UI exists yet, so it's added here; AI edits don't exist yet either, so the "immediate push" path is verified via a direct test call rather than a real AI feature — see the issue for the full reasoning.
-  - [ ] Settings supports configuring a remote URL and credentials (username/PAT), in-memory only
-  - [ ] Pull attempts on page open and on a background interval; failures never block rendering
-  - [ ] Shared push entry point with an `immediate` flag: manual edits debounce, a test exercises `immediate: true` directly to stand in for future AI edits
+- **Backend: configurable repo subfolder + vault access rules** (M) — https://github.com/sunix/todowai/issues/60
+  Replaces #11 (closed). Same subfolder/vault-access rules as before (`.git`/`.obsidian` off-limits, edit-anywhere/create-only-inside-subfolder), re-implemented against real backend filesystem access.
+  - [ ] Configurable Todowai subfolder name (default `todowai`), set via mounted path/config
+  - [ ] `.obsidian/` and `.git/` rejected on any read/write and never listed
+  - [ ] Editing existing files outside the subfolder succeeds; creating new ones there is rejected
+  - [ ] Externally-deleted files outside the subfolder are not staged/committed by Todowai
+
+- **Web UI: integrate with the backend API** (M) — https://github.com/sunix/todowai/issues/61
+  Swap the web UI's in-browser `RepositoryController` (File System Access API + isomorphic-git) for an HTTP client against the new backend, with no change to screens/UX.
+  - [ ] All repository operations in the UI go through the backend API
+  - [ ] No File System Access API / isomorphic-git code paths remain in the web UI
+  - [ ] Existing UI/UX behaves the same from the user's perspective
+
+- **Rust core: git pull/push sync engine (offline-first)** (L) — https://github.com/sunix/todowai/issues/62
+  Replaces #12 (closed — the browser-based attempt hit an unfixable GitHub CORS wall, see closed PR #58 and ADR-001). Same design (debounced/immediate push, background pull, non-blocking offline/conflict status), implemented via git2-rs/gitoxide on the backend where CORS doesn't apply.
+  - [ ] Backend supports configuring a remote URL + credentials (username/PAT), in-memory only
+  - [ ] Pull attempts on backend start and on a background interval; failures never block the API/UI
+  - [ ] Shared push entry point with an `immediate` flag; `immediate: true` exercised directly to stand in for future AI edits
   - [ ] A merge conflict during pull surfaces as a clear, non-blocking error (full resolution UI is #13)
-  - [ ] Verified behavior with a mocked failing transport: app remains usable, edits still save locally, sync-status indicator reflects offline/retry
+  - [ ] Verified behavior with the network unreachable: app remains usable, edits still save locally, sync-status reflects offline/retry
 
 - **Non-blocking git 3-way merge conflict handling** (M) — https://github.com/sunix/todowai/issues/13
-  Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing.
+  Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing. Now depends on #62 (the Rust-core sync engine) rather than the closed #12 — behavior/UX unchanged by the pivot.
   - [ ] Non-overlapping concurrent edits merge automatically with no user action
   - [ ] Overlapping edits produce a conflict entry the user can resolve later without being blocked from continuing other edits
 
@@ -162,17 +177,21 @@ Cross-cutting AI behavior and its safety boundaries.
 
 ## M8 — Platform packaging
 
-Turning the PWA core into installable desktop and mobile apps.
+Turning the web UI + Rust core into installable desktop and mobile apps. One UI codebase and one
+Rust core (from M1) reused across every target — see [ADR-001](../specification/decisions.md).
 
 - **Tauri desktop wrapper** (M) — https://github.com/sunix/todowai/issues/32
-  Package the PWA as a desktop app using Tauri, using native filesystem access in place of the File System Access API where beneficial.
-  - [ ] Desktop build launches and can read/write a configured local repo folder
-  - [ ] Same core UI/logic as the PWA, no forked codebase
+  Package the web UI as a desktop app using Tauri, backed by the same Rust core (#59) via Tauri's IPC bridge instead of an HTTP API or the File System Access API.
+  - [ ] Desktop build launches and can read/write a configured local repo folder via the shared Rust core
+  - [ ] Same core UI/logic as the web app, no forked codebase
 
-- **Capacitor mobile wrapper** (L) — https://github.com/sunix/todowai/issues/33
-  Package the PWA as iOS/Android apps using Capacitor, with the git repo stored in app-sandboxed storage and synced via push/pull to a remote (no shared-folder access, per platform constraints).
-  - [ ] Mobile build launches and performs isomorphic-git operations against sandboxed local storage
-  - [ ] Sync to/from the configured remote works over the offline-first sync engine from M1
+- ~~Capacitor mobile wrapper — #33~~ **Superseded**, see #63.
+
+- **Tauri mobile wrapper (Rust core via FFI)** (L) — https://github.com/sunix/todowai/issues/63
+  Replaces #33 (closed): mobile packaging moves from Capacitor + sandboxed isomorphic-git to Tauri, reusing the same web UI and Rust core via Tauri's IPC bridge — no local server, no browser CORS restriction.
+  - [ ] Mobile build (iOS and Android) launches via Tauri, reusing the existing web UI with no forked UI codebase
+  - [ ] Git/filesystem operations run through the same Rust core as the backend/desktop, via Tauri's IPC bridge
+  - [ ] Sync to/from the configured remote works using the same sync engine design as the backend
 
 
 ## M9 — Privacy & hardening

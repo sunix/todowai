@@ -1,7 +1,7 @@
 ---
 title: Todowai
 description: "A privacy-first AI-assisted note and task companion for deciding what to do next."
-sultan_phase: 1 — Specification
+sultan_phase: 3 — Plan
 iterations: 2
 mockup_url: "https://sunix.github.io/todowai/"
 ---
@@ -14,7 +14,7 @@ mockup_url: "https://sunix.github.io/todowai/"
 
 <!-- Managed by the `update-phase` skill. Do not edit manually. -->
 
-**Phase:** 1 — Specification
+**Phase:** 3 — Plan
 **Iteration:** 2
 **Status:** In Progress
 

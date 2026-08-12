@@ -1,49 +1,59 @@
 # Deployment Plan
 
-Todowai ships as three client artifacts (PWA, Tauri desktop, Capacitor mobile) with no application backend server — the only remote is the user's own configured git host. "Deployment" here means shipping and updating those client artifacts safely.
+**Reworked following the architecture pivot in [ADR-001](../specification/decisions.md).**
+Todowai now ships as: a self-hosted backend (Rust core + bundled web UI in a single Docker
+image, run locally by the user — hosted/cloud deployment is deferred, see specs.md Out of
+Scope) and installable Tauri desktop/mobile apps that reuse the same web UI and Rust core.
+There is still no third-party application server beyond what the user runs themselves — the
+only remote is the user's own configured git host.
 
 ## Target Environments
 
 - **Dev** — local builds against local/test git repos.
-- **Staging** — an ephemeral per-PR PWA preview on Surge (triggered by a `/preview` PR comment, see below) plus a desktop/mobile beta channel, for manual QA before release.
-- **Prod** — public PWA via GitHub Pages (the same mechanism already used for the Phase 2 mockup deploy), signed desktop installers, and mobile store/TestFlight builds.
+- **Staging** — an ephemeral per-PR web UI preview on Surge (triggered by a `/preview` PR comment, see below — UI-only, doesn't exercise the backend) plus a desktop/mobile beta channel, for manual QA before release.
+- **Prod** — the self-hosted Docker image (backend + bundled UI), signed desktop installers, and mobile store/TestFlight builds.
 
 ## Action Items
 
 - **CI pipeline: lint, test, and build the PWA** (S) — https://github.com/sunix/todowai/issues/36
-  Set up continuous integration to lint, run tests, and build the PWA on every push/PR.
-  - [ ] CI runs on every PR and blocks merge on failure
-  - [ ] Build artifact is produced and archived per run
+  Set up continuous integration to lint, test, and build both the web UI and the Rust core on every push/PR.
+  - [ ] CI runs on every PR (web UI and Rust core) and blocks merge on failure
+  - [ ] Build artifacts are produced and archived per run
 
 - **PWA PR preview via Surge (`/preview` comment)** (S) — https://github.com/sunix/todowai/issues/52
-  Give reviewers a live preview build of the PWA on any pull request, following the [`pr-preview-surge`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/pr-preview-surge) skill: a `/preview` PR comment builds the PR's merge ref and deploys it to a deterministic Surge URL.
+  Give reviewers a live preview build of the web UI on any pull request, following the [`pr-preview-surge`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/pr-preview-surge) skill: a `/preview` PR comment builds the PR's merge ref and deploys it to a deterministic Surge URL. Still useful for UI-only changes; doesn't exercise the backend.
   - [x] Commenting `/preview` on an open PR deploys the current build to a per-PR Surge URL
   - [x] The triggering comment is updated with the live URL on success, or a failed-run link on failure
   - [x] A second `/preview` comment while a deploy is running cancels the in-flight one rather than racing it
 
-- **Static hosting + service worker for PWA (prod)** (M) — https://github.com/sunix/todowai/issues/37
-  Configure GitHub Pages hosting for the production PWA build with a versioned service worker for offline-shell support, extending the existing `deploy-mockup.yml` pattern to the real app build.
-  - [ ] Production deploys from a tagged release (see the release-please item below)
-  - [ ] Service worker updates do not strand users on a stale cached version
+- ~~Static hosting + service worker for PWA (prod) — #37~~ **Superseded**, see #64.
+
+- **Build & publish the self-hosted Docker image (backend + bundled UI)** (M) — https://github.com/sunix/todowai/issues/64
+  Replaces #37 (closed): there's no standalone static PWA to host anymore — the backend serves the UI itself. This is production for v1.
+  - [ ] CI builds and publishes the combined Docker image (e.g. to GHCR) on a tagged release
+  - [ ] Image is versioned consistently with the release-please-driven version
+  - [ ] Documented `docker run` instructions let a user self-host with a single command against a mounted vault folder
 
 - **Tauri desktop build pipeline with code signing** (L) — https://github.com/sunix/todowai/issues/38
-  Set up CI builds for macOS/Windows/Linux Tauri installers, including code signing for macOS and Windows.
+  Set up CI builds for macOS/Windows/Linux Tauri installers (backed by the shared Rust core), including code signing for macOS and Windows.
   - [ ] CI produces installable artifacts for all three desktop OSes
   - [ ] macOS and Windows artifacts are signed and pass local install without security warnings
 
-- **Capacitor mobile build pipeline with signing/store credentials** (L) — https://github.com/sunix/todowai/issues/39
-  Set up CI builds for iOS and Android via Capacitor, including signing and store/testflight credential handling.
-  - [ ] CI produces an installable Android build and an iOS build uploadable to TestFlight
+- ~~Capacitor mobile build pipeline with signing/store credentials — #39~~ **Superseded**, see #65.
+
+- **Tauri mobile build pipeline with signing/store credentials** (L) — https://github.com/sunix/todowai/issues/65
+  Replaces #39 (closed): mobile packaging moved from Capacitor to Tauri.
+  - [ ] CI produces an installable Android build and an iOS build uploadable to TestFlight via Tauri's mobile tooling
   - [ ] Signing credentials are pulled from CI secrets, never committed to the repo
 
 - **Automate versioning & releases with release-please** (S) — https://github.com/sunix/todowai/issues/40
-  Use [`release-please`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/release-please) to turn Conventional Commits on `main` into an always-up-to-date Release PR (version bump + `CHANGELOG.md`); merging it publishes a GitHub Release and tag that becomes the single version referenced by Tauri and Capacitor builds.
+  Use [`release-please`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/release-please) to turn Conventional Commits on `main` into an always-up-to-date Release PR (version bump + `CHANGELOG.md`); merging it publishes a GitHub Release and tag that becomes the single version referenced by the Docker image and Tauri builds.
   - [ ] A `feat:`/`fix:` commit on `main` produces or updates a Release PR with the correct version bump and changelog entry
   - [ ] Merging the Release PR publishes a GitHub Release and a git tag
   - [x] `AGENTS.md` documents the Conventional Commits + one-commit-per-PR requirement this depends on
 
 - **Rollback strategy per platform** (S) — https://github.com/sunix/todowai/issues/41
-  Define how to roll back a bad release: PWA (redeploy previous build/service worker), desktop (re-publish previous installer), mobile (halt rollout / revert store release).
+  Define how to roll back a bad release: self-hosted Docker image (redeploy previous image tag), desktop (re-publish previous Tauri installer), mobile (halt rollout / revert store release).
   - [ ] Rollback steps are documented per platform
   - [ ] A rollback has been dry-run at least once in staging
 
@@ -54,7 +64,7 @@ Todowai ships as three client artifacts (PWA, Tauri desktop, Capacitor mobile) w
   - [ ] Rotation procedure is documented and has an owner
 
 - **Desktop/mobile beta channel for pre-release manual QA** (M) — https://github.com/sunix/todowai/issues/43
-  Provide a beta distribution channel for Tauri and Capacitor builds ahead of a stable release — the PWA's equivalent (per-PR preview) is already covered by the Surge item above.
+  Provide a beta distribution channel for Tauri desktop and Tauri mobile builds ahead of a stable release — the UI's equivalent (per-PR preview) is already covered by the Surge item above.
   - [ ] A desktop build can be promoted to a beta channel independently of the stable release
   - [ ] A mobile build can be promoted to TestFlight / an Android beta track independently of the stable release
   - [ ] Manual QA checklist exists and is run against the beta channel before each production release
