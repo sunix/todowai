@@ -86,6 +86,11 @@ export type SyncResult = {
   message: string;
 };
 
+export type ConfiguredRemote = {
+  name: string;
+  url: string;
+};
+
 export function supportsFileSystemAccess(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
@@ -133,6 +138,19 @@ export class RepositoryController {
 
   get hasRemote(): boolean {
     return this.remote !== null;
+  }
+
+  // Reads whatever remotes are already configured in this repo's .git/config (the same data
+  // `git remote -v` shows) so the UI can offer them as suggestions instead of requiring the URL
+  // to be retyped from scratch. Never throws: an unreadable/absent config just means no
+  // suggestions, not a broken repository.
+  async listRemotes(): Promise<ConfiguredRemote[]> {
+    try {
+      const remotes = await git.listRemotes({ fs: this.fs, dir: VIRTUAL_REPO_ROOT });
+      return remotes.map((remote) => ({ name: remote.remote, url: remote.url }));
+    } catch {
+      return [];
+    }
   }
 
   // Never throws — pull failures must not block the UI (per the offline-first NFR), so every

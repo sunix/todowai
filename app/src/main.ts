@@ -1,6 +1,6 @@
 import './style.css';
 import { topLevelFolders } from './file-tree';
-import { RepositoryController, supportsFileSystemAccess, type SyncStatus } from './repository';
+import { RepositoryController, supportsFileSystemAccess, type ConfiguredRemote, type SyncStatus } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import { renderScreen, renderSettingsScreen } from './screens';
 import { createSyncScheduler, type SyncScheduler } from './sync-scheduler';
@@ -43,6 +43,7 @@ type AppState = {
   remoteUrl: string;
   remoteUsername: string;
   remoteToken: string;
+  configuredRemotes: ConfiguredRemote[];
   syncStatus: SyncStatus | 'idle' | 'syncing';
   syncMessage: string;
 };
@@ -76,6 +77,7 @@ const state: AppState = {
   remoteUrl: '',
   remoteUsername: '',
   remoteToken: '',
+  configuredRemotes: [],
   syncStatus: 'idle',
   syncMessage: 'No remote configured.',
 };
@@ -113,6 +115,7 @@ function render(): void {
           remoteUrl: state.remoteUrl,
           remoteUsername: state.remoteUsername,
           remoteToken: state.remoteToken,
+          configuredRemotes: state.configuredRemotes,
           syncStatus: state.syncStatus,
           syncMessage: state.syncMessage,
         })
@@ -150,6 +153,7 @@ function bindSettingsScreen(): void {
       // immediately, rather than a flat list of collapsed top-level entries.
       state.expandedFolders = new Set(topLevelFolders(state.files));
       state.statusMessage = `Opened ${state.folderName}.`;
+      state.configuredRemotes = await state.repository.listRemotes();
 
       applyRemoteConfig();
       scheduler?.stop();

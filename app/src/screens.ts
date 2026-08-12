@@ -1,5 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { RepositoryChange, RepositoryHistoryEntry, SyncStatus } from './repository';
+import type { ConfiguredRemote, RepositoryChange, RepositoryHistoryEntry, SyncStatus } from './repository';
 import type { ScreenId } from './router';
 
 const TITLES: Record<ScreenId, string> = {
@@ -45,6 +45,7 @@ type SettingsScreenState = {
   remoteUrl: string;
   remoteUsername: string;
   remoteToken: string;
+  configuredRemotes: ConfiguredRemote[];
   syncStatus: SyncStatus | 'idle' | 'syncing';
   syncMessage: string;
 };
@@ -76,6 +77,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     remoteUrl: '',
     remoteUsername: '',
     remoteToken: '',
+    configuredRemotes: [],
     syncStatus: 'idle' as const,
     syncMessage: 'No remote configured.',
   };
@@ -117,6 +119,13 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
       : '<li class="empty-state">No pending changes.</li>';
 
   const syncStatusClass = viewState.syncStatus === 'idle' ? '' : ` sync-status-${viewState.syncStatus}`;
+
+  const configuredRemoteOptions = viewState.configuredRemotes
+    .map(
+      (remote) =>
+        `<option value="${escapeHtmlAttribute(remote.url)}" label="${escapeHtmlAttribute(remote.name)}"></option>`
+    )
+    .join('');
 
   return `
     <h1 class="title">${TITLES.settings}</h1>
@@ -168,7 +177,13 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
           background; commits push after a short debounce. Credentials are kept in memory only, never persisted.
         </p>
         <label class="field-label" for="remote-url">Remote URL</label>
-        <input class="text-input" id="remote-url" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <input class="text-input" id="remote-url" list="configured-remotes" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <datalist id="configured-remotes">${configuredRemoteOptions}</datalist>
+        ${
+          viewState.configuredRemotes.length > 0
+            ? '<p class="field-help">Suggestions from this repository’s existing git remotes.</p>'
+            : ''
+        }
         <label class="field-label" for="remote-username">Username</label>
         <input class="text-input" id="remote-username" value="${escapeHtmlAttribute(viewState.remoteUsername)}" placeholder="git">
         <label class="field-label" for="remote-token">Personal access token</label>
