@@ -24,6 +24,7 @@ type AppState = {
   selectedFileContent: string;
   history: import('./repository').RepositoryHistoryEntry[];
   pendingChanges: import('./repository').RepositoryChange[];
+  subfolder: string;
   expandedFolders: Set<string>;
   isBusy: boolean;
   busyLabel: string;
@@ -42,6 +43,7 @@ const state: AppState = {
   selectedFileContent: '',
   history: [],
   pendingChanges: [],
+  subfolder: 'todowai',
   expandedFolders: new Set(),
   isBusy: false,
   busyLabel: '',
@@ -78,6 +80,7 @@ function render(): void {
           selectedFileContent: state.selectedFileContent,
           history: state.history,
           pendingChanges: state.pendingChanges,
+          subfolder: state.subfolder,
           expandedFolders: state.expandedFolders,
           isBusy: state.isBusy,
           busyLabel: state.busyLabel,
@@ -104,6 +107,7 @@ function bindSettingsScreen(): void {
   main.querySelector<HTMLButtonElement>('#open-repo-button')?.addEventListener('click', async () => {
     await runRepositoryAction('Opening repository…', async (setLabel) => {
       state.repository = await RepositoryController.openWithPicker();
+      state.repository.setSubfolder(state.subfolder);
 
       setLabel('Loading repository status…');
       const snapshot = await state.repository.snapshot();
@@ -121,6 +125,11 @@ function bindSettingsScreen(): void {
       state.expandedFolders = new Set(topLevelFolders(state.files));
       state.statusMessage = `Opened ${state.folderName}.`;
     });
+  });
+
+  main.querySelector<HTMLInputElement>('#todowai-subfolder')?.addEventListener('input', (event) => {
+    state.subfolder = (event.target as HTMLInputElement).value;
+    state.repository?.setSubfolder(state.subfolder);
   });
 
   main.querySelectorAll<HTMLButtonElement>('[data-toggle-folder]').forEach((button) => {

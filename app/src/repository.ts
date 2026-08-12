@@ -2,6 +2,8 @@ import * as git from 'isomorphic-git';
 
 const VIRTUAL_REPO_ROOT = '/repo';
 const HISTORY_DEPTH = 10;
+const DEFAULT_SUBFOLDER = 'todowai';
+const PROTECTED_TOP_LEVEL_NAMES = new Set(['.git', '.obsidian']);
 
 type FsEncoding = 'utf8';
 type FsReadOptions = { encoding?: FsEncoding | null } | FsEncoding | null;
@@ -89,10 +91,24 @@ export class RepositoryController {
   // reflected until the repository is reopened (which re-seeds via a fresh full walk).
   private readonly knownFiles = new Set<string>();
   private readonly pendingChangesByPath = new Map<string, RepositoryChangeType>();
+  // Where Todowai's own files (AI conversation logs, task/status metadata) live. Outside this
+  // subfolder, existing files can still be read and edited (e.g. notes in an existing Obsidian
+  // vault), but Todowai will not create new files there or commit external deletions of them —
+  // see writeTextFile and classifyPendingChanges.
+  private subfolder: string = DEFAULT_SUBFOLDER;
 
   private constructor(directoryHandle: FileSystemDirectoryHandle, fs: BrowserFs) {
     this.directoryHandle = directoryHandle;
     this.fs = fs;
+  }
+
+  setSubfolder(name: string): void {
+    const trimmed = name.trim().replace(/^\/+|\/+$/g, '');
+    this.subfolder = trimmed || DEFAULT_SUBFOLDER;
+  }
+
+  get subfolderName(): string {
+    return this.subfolder;
   }
 
   static async openWithPicker(): Promise<RepositoryController> {
@@ -135,7 +151,7 @@ export class RepositoryController {
     }
 
     this.pendingChangesByPath.clear();
-    for (const change of classifyPendingChanges(statusMatrix)) {
+    for (const change of classifyPendingChanges(statusMatrix, this.subfolder)) {
       this.pendingChangesByPath.set(change.filepath, change.changeType);
     }
 
@@ -172,6 +188,13 @@ export class RepositoryController {
 
   async writeTextFile(path: string, content: string): Promise<RepositoryWriteResult> {
     const normalizedPath = normalizeEditableRepositoryPath(path);
+
+    if (!isInsideSubfolder(normalizedPath, this.subfolder) && !(await this.fileExists(normalizedPath))) {
+      throw new Error(
+        `Todowai can only create new files inside the "${this.subfolder}/" subfolder. "${normalizedPath}" doesn't exist yet — editing an existing file outside "${this.subfolder}/" is fine, creating a new one there isn't.`
+      );
+    }
+
     await this.fs.promises.writeFile(toVirtualPath(normalizedPath), content, { encoding: 'utf8' });
 
     // Re-check only the one file we just touched, not the whole vault: isomorphic-git's
@@ -200,7 +223,7 @@ export class RepositoryController {
       filepaths: [filepath],
     });
 
-    const [change] = classifyPendingChanges(statusMatrix);
+    const [change] = classifyPendingChanges(statusMatrix, this.subfolder);
     if (change) {
       this.pendingChangesByPath.set(change.filepath, change.changeType);
     } else {
@@ -289,27 +312,59 @@ export class RepositoryController {
       .map(([filepath, changeType]) => ({ filepath, changeType }))
       .sort((left, right) => left.filepath.localeCompare(right.filepath));
   }
+
+  private async fileExists(normalizedPath: string): Promise<boolean> {
+    try {
+      const stats = await this.fs.promises.stat(`${VIRTUAL_REPO_ROOT}/${normalizedPath}`);
+      return stats.isFile();
+    } catch {
+      return false;
+    }
+  }
+}
+
+function isInsideSubfolder(filepath: string, subfolder: string): boolean {
+  return filepath === subfolder || filepath.startsWith(`${subfolder}/`);
+}
+
+// .obsidian/ can hold sensitive plugin data (API keys, etc.) and writing to it could corrupt the
+// user's Obsidian setup — like .git/, it's fully off-limits: never browsed, read, or written to.
+function isBrowsablePath(filepath: string): boolean {
+  const topLevelName = filepath.split('/')[0]?.toLowerCase();
+  return !PROTECTED_TOP_LEVEL_NAMES.has(topLevelName ?? '');
 }
 
 function filesFromStatusMatrix(statusMatrix: Awaited<ReturnType<typeof git.statusMatrix>>): string[] {
   return statusMatrix
-    .filter(([, , worktreeStatus]) => worktreeStatus !== 0)
+    .filter(([filepath, , worktreeStatus]) => worktreeStatus !== 0 && isBrowsablePath(filepath))
     .map(([filepath]) => filepath)
     .sort((left, right) => left.localeCompare(right));
 }
 
-function classifyPendingChanges(statusMatrix: Awaited<ReturnType<typeof git.statusMatrix>>): RepositoryChange[] {
+function classifyPendingChanges(
+  statusMatrix: Awaited<ReturnType<typeof git.statusMatrix>>,
+  subfolder: string
+): RepositoryChange[] {
   const changes: RepositoryChange[] = [];
 
   for (const [filepath, headStatus, worktreeStatus, stageStatus] of statusMatrix) {
+    if (!isBrowsablePath(filepath)) {
+      continue;
+    }
+
     if (headStatus === worktreeStatus && worktreeStatus === stageStatus) {
       continue;
     }
 
-    changes.push({
-      filepath,
-      changeType: worktreeStatus === 0 ? 'deleted' : headStatus === 0 ? 'added' : 'modified',
-    });
+    const changeType: RepositoryChangeType = worktreeStatus === 0 ? 'deleted' : headStatus === 0 ? 'added' : 'modified';
+
+    // Todowai doesn't manage deletions outside its own subfolder — if something else deleted a
+    // vault file Todowai didn't create, that's not Todowai's to stage or commit.
+    if (changeType === 'deleted' && !isInsideSubfolder(filepath, subfolder)) {
+      continue;
+    }
+
+    changes.push({ filepath, changeType });
   }
 
   return changes;
@@ -541,10 +596,11 @@ function normalizeEditableRepositoryPath(path: string): string {
     throw createFsError('EINVAL', path, 'Enter a relative file path inside the repository.');
   }
 
-  // Case-insensitive: on the default filesystems for macOS (APFS) and Windows (NTFS/exFAT),
-  // ".GIT" and ".git" resolve to the same directory, so the guard must match either.
-  if (segments[0].toLowerCase() === '.git') {
-    throw createFsError('EACCES', path, 'Editing files inside .git is not allowed.');
+  // Case-insensitive: on the default filesystems for macOS (APFS) and Windows (NTFS/exFAT), a
+  // differently-cased name resolves to the same directory, so the guard must match either.
+  const topLevelName = segments[0].toLowerCase();
+  if (PROTECTED_TOP_LEVEL_NAMES.has(topLevelName)) {
+    throw createFsError('EACCES', path, `Editing files inside ${segments[0]} is not allowed.`);
   }
 
   return segments.join('/');
