@@ -253,6 +253,18 @@ jobs:
         with:
           ref: refs/pull/${{ env.PR_NUMBER }}/merge
 
+      # Building this multi-stage image (Rust compilation is the heavy part) can exceed the
+      # runner's default free disk space once combined with cache export, surfacing as a
+      # BuildKit "failed to reserve cache" error rather than a clear disk-space message.
+      # Freeing space taken by preinstalled toolchains this workflow doesn't use gives enough
+      # headroom.
+      - name: Free up runner disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
+          large-packages: false
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -269,8 +281,11 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:pr-${{ env.PR_NUMBER }}
+          # mode=min (the default) only caches the final image's layers, not every
+          # intermediate layer of every build stage — mode=max was pushing the runner's
+          # local cache storage over the edge during the Rust build above.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Update PR comment with docker run command
         if: success()
@@ -336,10 +351,23 @@ jobs:
 
             // GHCR container packages for this repo are owned by the `sunix` user account
             // (confirmed via the API), not an org — hence the *ForUser endpoints below.
-            const versions = await github.paginate(
-              github.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
-              { package_type: 'container', package_name: packageName, username: owner }
-            );
+            let versions;
+            try {
+              versions = await github.paginate(
+                github.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+                { package_type: 'container', package_name: packageName, username: owner }
+              );
+            } catch (error) {
+              if (error.status === 404) {
+                // No preview image has ever been published (e.g. this PR never got a
+                // /preview comment, or this is the very first one for the repo) — the
+                // package itself doesn't exist yet, which 404s here rather than returning
+                // an empty list.
+                console.log(`Package ${packageName} not found; nothing to clean up.`);
+                return;
+              }
+              throw error;
+            }
 
             const match = versions.find((version) =>
               (version.metadata?.container?.tags || []).includes(tag)
