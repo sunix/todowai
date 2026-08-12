@@ -49,3 +49,5 @@ docker run -p 8080:8080 -v /path/to/your/vault:/vault todowai
 ```
 
 Then open `http://localhost:8080`.
+
+Every PR also gets its own preview image published to GHCR automatically — comment `/preview` on the PR and look for the "Backend preview image published!" comment with a ready-to-run `docker run` command (see #66).
