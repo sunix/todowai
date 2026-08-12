@@ -1,0 +1,9 @@
+.git
+app/node_modules
+app/dist
+backend/target
+implementation
+mockup
+plan
+specification
+*.md
