@@ -11,7 +11,7 @@
 | [#10](https://github.com/sunix/todowai/issues/10) | Integrate isomorphic-git with File System Access API storage adapter | Copilot (+ Claude review/fixes) | [#56](https://github.com/sunix/todowai/pull/56) | Merged |
 | [#11](https://github.com/sunix/todowai/issues/11) | Settings: configurable git repo path + subfolder | Claude | [#57](https://github.com/sunix/todowai/pull/57) | Merged |
 | [#12](https://github.com/sunix/todowai/issues/12) | Offline-first sync engine (pull/push scheduling) | Claude | [#58](https://github.com/sunix/todowai/pull/58) (closed, not merged) | Superseded — see [ADR-001](../specification/decisions.md) |
-| [#59](https://github.com/sunix/todowai/issues/59) | Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide) | Claude | [#67](https://github.com/sunix/todowai/pull/67) | In Review |
+| [#59](https://github.com/sunix/todowai/issues/59) | Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide) | Claude | [#67](https://github.com/sunix/todowai/pull/67) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

@@ -19,11 +19,11 @@ later, via Tauri for desktop/mobile (M8).
 - ~~Settings: configurable git repo path + subfolder — #11~~ **Superseded**, see #60.
 - ~~Offline-first sync engine (pull/push scheduling) — #12~~ **Superseded**, see #62.
 
-- **Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide)** (L) — https://github.com/sunix/todowai/issues/59
-  Replaces #10 (closed). A shared Rust core implements git/filesystem operations against a real path, compiled into a backend HTTP service bundled with the web UI into a single Docker image — one `docker run` self-hosts both.
-  - [ ] Rust core exposes open/read/write/commit/history via git2-rs or gitoxide against a real filesystem path
-  - [ ] Backend HTTP service exposes these operations locally
-  - [ ] Single Docker image bundles backend + web UI static assets; `docker run` with a mounted repo folder works end-to-end
+- **Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide)** (L) — https://github.com/sunix/todowai/issues/59 — *Merged (#67).*
+  Replaces #10 (closed). A shared Rust core implements git/filesystem operations against a real path, compiled into a backend HTTP service bundled with the web UI into a single Docker image — one `docker run` self-hosts both. Delivered as git2-rs (not gitoxide) plus an axum HTTP API; deliberately skipped porting the old browser code's in-memory incremental status-tracking optimization since git2's native `statuses()` is already fast against a real filesystem.
+  - [x] Rust core exposes open/read/write/commit/history via git2-rs against a real filesystem path
+  - [x] Backend HTTP service exposes these operations locally
+  - [x] Single Docker image bundles backend + web UI static assets; `docker run` with a mounted repo folder works end-to-end
 
 - **Backend: configurable repo subfolder + vault access rules** (M) — https://github.com/sunix/todowai/issues/60
   Replaces #11 (closed). Same subfolder/vault-access rules as before (`.git`/`.obsidian` off-limits, edit-anywhere/create-only-inside-subfolder), re-implemented against real backend filesystem access.
