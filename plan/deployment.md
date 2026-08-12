@@ -17,9 +17,9 @@ Todowai ships as three client artifacts (PWA, Tauri desktop, Capacitor mobile) w
 
 - **PWA PR preview via Surge (`/preview` comment)** (S) — https://github.com/sunix/todowai/issues/52
   Give reviewers a live preview build of the PWA on any pull request, following the [`pr-preview-surge`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/pr-preview-surge) skill: a `/preview` PR comment builds the PR's merge ref and deploys it to a deterministic Surge URL.
-  - [ ] Commenting `/preview` on an open PR deploys the current build to a per-PR Surge URL
-  - [ ] The triggering comment is updated with the live URL on success, or a failed-run link on failure
-  - [ ] A second `/preview` comment while a deploy is running cancels the in-flight one rather than racing it
+  - [x] Commenting `/preview` on an open PR deploys the current build to a per-PR Surge URL
+  - [x] The triggering comment is updated with the live URL on success, or a failed-run link on failure
+  - [x] A second `/preview` comment while a deploy is running cancels the in-flight one rather than racing it
 
 - **Static hosting + service worker for PWA (prod)** (M) — https://github.com/sunix/todowai/issues/37
   Configure GitHub Pages hosting for the production PWA build with a versioned service worker for offline-shell support, extending the existing `deploy-mockup.yml` pattern to the real app build.
@@ -40,7 +40,7 @@ Todowai ships as three client artifacts (PWA, Tauri desktop, Capacitor mobile) w
   Use [`release-please`](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/release-please) to turn Conventional Commits on `main` into an always-up-to-date Release PR (version bump + `CHANGELOG.md`); merging it publishes a GitHub Release and tag that becomes the single version referenced by Tauri and Capacitor builds.
   - [ ] A `feat:`/`fix:` commit on `main` produces or updates a Release PR with the correct version bump and changelog entry
   - [ ] Merging the Release PR publishes a GitHub Release and a git tag
-  - [ ] `AGENTS.md` documents the Conventional Commits + one-commit-per-PR requirement this depends on
+  - [x] `AGENTS.md` documents the Conventional Commits + one-commit-per-PR requirement this depends on
 
 - **Rollback strategy per platform** (S) — https://github.com/sunix/todowai/issues/41
   Define how to roll back a bad release: PWA (redeploy previous build/service worker), desktop (re-publish previous installer), mobile (halt rollout / revert store release).

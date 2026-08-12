@@ -8,13 +8,13 @@ Foundational git-backed storage layer everything else depends on.
 
 - **Scaffold PWA project shell** (S) — https://github.com/sunix/todowai/issues/9
   Set up the PWA build tooling and a routing shell for the seven screens (Capture, Notebook, Next Action, Projects, Horizon, Meetings, Settings) defined in specification/specs.md.
-  - [ ] Project builds and runs locally as an installable PWA
-  - [ ] Shell navigates between seven empty placeholder screens matching mockup/index.html's structure
+  - [x] Project builds and runs locally as an installable PWA
+  - [x] Shell navigates between seven empty placeholder screens matching mockup/index.html's structure
 
 - **Integrate isomorphic-git with File System Access API storage adapter** (M) — https://github.com/sunix/todowai/issues/10
-  Wire up isomorphic-git as the sole git engine (per NFR) and implement the desktop-browser storage adapter using the File System Access API to read/write a real folder on disk.
-  - [ ] Can open an existing local git repo folder and read its contents
-  - [ ] Can commit and read history via isomorphic-git, no shell-out to a native git binary
+  Wire up isomorphic-git as the sole git engine (per NFR) and implement the desktop-browser storage adapter using the File System Access API to read/write a real folder on disk. Delivered scope grew beyond the original criteria: a "pending changes" view before committing, a collapsible file tree, and a busy indicator with real per-step labels — plus, after real-world testing surfaced 1-2 minute commit times, two rounds of performance work (deduplicating full-tree walks, then replacing them with incremental/scoped `statusMatrix` tracking) that cut FS Access API calls for a single-file commit by ~70x on a simulated 200-file vault.
+  - [x] Can open an existing local git repo folder and read its contents
+  - [x] Can commit and read history via isomorphic-git, no shell-out to a native git binary
 
 - **Settings: configurable git repo path + subfolder** (M) — https://github.com/sunix/todowai/issues/11
   Implement the Settings screen field for the Todowai subfolder name, and the vault access rules that let Todowai coexist with an existing Obsidian vault: `.git`/`.obsidian` fully off-limits (hidden + blocked); editing existing files anywhere in the vault is allowed; creating/deleting files is confined to the configured subfolder.
@@ -185,7 +185,7 @@ Final verification against the privacy and safety requirements.
   - [ ] Documented confirmation that encryption/GPG is intentionally deferred, not accidentally missing
 
 - **Vault-collision safety checks** (S) — https://github.com/sunix/todowai/issues/35
-  Add defensive checks ensuring the app never writes outside its configured subfolder, protecting an existing Obsidian vault's other content and .obsidian/ configuration.
+  Add defensive checks ensuring the app never writes outside its configured subfolder, protecting an existing Obsidian vault's other content and .obsidian/ configuration. **Note:** #11 already delivered most of this (the `.git`/`.obsidian` guard and the outside-subfolder create/delete restrictions, with an automated test attempting a rejected write) as part of resolving the vault-access design discussion — worth revisiting this issue's remaining scope (real-vault manual test?) before starting it rather than redoing what #11 already covers.
   - [ ] Automated test attempts a write outside the configured subfolder and confirms it is rejected
   - [ ] Manual test against a real Obsidian vault shows no unexpected files/changes outside the subfolder
 
