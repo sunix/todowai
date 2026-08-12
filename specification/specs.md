@@ -87,7 +87,10 @@ Todowai is a personal productivity application that helps a user decide what to 
 
 - Privacy is a primary requirement: notes stay as private as possible via a private git repository and standard git transport security; no content encryption in v1 (GPG/content encryption deferred to a later phase).
 - Notes and AI conversations live in a single user-configurable private git repository, with a dedicated subfolder for AI conversations — not a repository hardcoded by the app.
-- Architecture: a single PWA codebase using isomorphic-git for all git operations, wrapped by Tauri for the desktop app and Capacitor for the mobile app, so browser, desktop, and mobile share the same core logic.
+- Architecture: a shared Rust core (via `git2-rs`/`gitoxide`) implements all git, filesystem, and sync logic — one engine, identical behavior on every platform. The existing web UI (HTML/CSS/TypeScript) is the single UI codebase, reused everywhere rather than rebuilt per platform:
+  - **Self-hosted backend:** the Rust core runs as an HTTP service, bundled with the web UI into a single Docker image — one `docker run` self-hosts both. The same image is intended to run on the user's own cloud infrastructure later (see Out of Scope).
+  - **Installable native apps (desktop & mobile):** the same Rust core and the same web UI are packaged via Tauri, which wraps the web UI in a native webview and exposes the Rust core through its own IPC bridge instead of browser `fetch()` — sidestepping the git-smart-HTTP CORS restriction entirely (GitHub's git endpoints send no CORS headers, so a browser page can never call them directly), with no server required for anyone who just installs the app.
+  - Browser-only operation with no backend (the original File System Access API + isomorphic-git approach built across #9–#12) is fully superseded by this model, not kept as a fallback; those issues will be revisited in the plan.
 - Offline-first: every device commits locally at any time regardless of sync state. Sync behavior:
   - **Pull:** before opening a page or the main screen, and periodically in the background while the app is foregrounded (to keep status/suggestions reasonably fresh across devices). If offline, the pull fails silently, the page opens with local/cached state, and it retries in the background — it never blocks the UI.
   - **Push:** immediately after AI edits (discrete, meaningful commits); debounced after manual user edits (e.g. after a short idle period or on closing a note) rather than on every keystroke, to avoid spamming the remote and draining battery/data on mobile.
@@ -103,6 +106,7 @@ Todowai is a personal productivity application that helps a user decide what to 
 - Autonomous, unsupervised AI execution outside the note base.
 - Multi-user or real-time collaborative editing (this product is single-user, multi-device).
 - OAuth-based calendar provider integrations or authenticated accounts (multiple read-only feed URLs are supported; provider authentication and write access are not).
+- Hosted/cloud deployment of the self-hosted backend (authentication, TLS, secure multi-device remote access over the internet) is deferred to a later phase; v1 targets local self-hosting (Docker) and installable native apps only.
 
 ---
 

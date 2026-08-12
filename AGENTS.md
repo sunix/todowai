@@ -1,8 +1,8 @@
 ---
 title: Todowai
 description: "A privacy-first AI-assisted note and task companion for deciding what to do next."
-sultan_phase: 4 — Implementation
-iterations: 1
+sultan_phase: 1 — Specification
+iterations: 2
 mockup_url: "https://sunix.github.io/todowai/"
 ---
 
@@ -14,8 +14,8 @@ mockup_url: "https://sunix.github.io/todowai/"
 
 <!-- Managed by the `update-phase` skill. Do not edit manually. -->
 
-**Phase:** 4 — Implementation
-**Iteration:** 1
+**Phase:** 1 — Specification
+**Iteration:** 2
 **Status:** In Progress
 
 ---
@@ -42,6 +42,12 @@ The agent must not advance to the next phase without explicit human confirmation
 - **Iterate:** from there the human owns `specification/specs.md`. The agent assists via the `refine-specs` skill: asking clarifying questions, surfacing gaps, and suggesting structure improvements.
 - Multiple iterations are expected. Each iteration increments the iteration count in *Current Phase*.
 - Phase 1 is complete when the human explicitly marks specs as ready to prototype.
+- Significant, hard-to-reverse decisions (and the reasoning behind them) are recorded in
+  [`specification/decisions.md`](./specification/decisions.md) — a running ADR-style log,
+  separate from `specs.md` itself. `specs.md` describes the current target state;
+  `decisions.md` preserves the *why* behind pivots so it isn't lost as specs evolve. Check
+  it at the start of work, and append a new entry whenever a decision changes direction on
+  something already decided or already built.
 
 **Skills:**
 - [`.agents/skills/import-specs/SKILL.md`](./.agents/skills/import-specs/SKILL.md) — seed the first draft from raw input
