@@ -7,7 +7,8 @@
 | Issue | Title | Agent | PR | Status |
 |-------|-------|-------|----|--------|
 | [#9](https://github.com/sunix/todowai/issues/9) | Scaffold PWA project shell | Claude | [#53](https://github.com/sunix/todowai/pull/53) | Merged |
-| [#52](https://github.com/sunix/todowai/issues/52) | PWA PR preview via Surge (/preview comment) | Claude | [#54](https://github.com/sunix/todowai/pull/54) | In Review |
+| [#52](https://github.com/sunix/todowai/issues/52) | PWA PR preview via Surge (/preview comment) | Claude | [#54](https://github.com/sunix/todowai/pull/54) | Merged |
+| [#10](https://github.com/sunix/todowai/issues/10) | Integrate isomorphic-git with File System Access API storage adapter | Copilot (+ Claude review/fixes) | [#56](https://github.com/sunix/todowai/pull/56) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged
