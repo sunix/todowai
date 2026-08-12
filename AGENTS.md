@@ -16,7 +16,7 @@ mockup_url: "https://sunix.github.io/todowai/"
 
 **Phase:** 3 — Plan
 **Iteration:** 2
-**Status:** In Progress
+**Status:** Complete
 
 ---
 
