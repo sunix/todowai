@@ -33,6 +33,7 @@ type SettingsScreenState = {
   selectedFileContent: string;
   history: RepositoryHistoryEntry[];
   pendingChanges: RepositoryChange[];
+  subfolder: string;
   expandedFolders: Set<string>;
   isBusy: boolean;
   busyLabel: string;
@@ -58,6 +59,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     selectedFileContent: '',
     history: [],
     pendingChanges: [],
+    subfolder: 'todowai',
     expandedFolders: new Set<string>(),
     isBusy: false,
     busyLabel: '',
@@ -72,7 +74,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
   const fileTreeHtml =
     fileTree.length > 0
       ? `<ul class="tree-root">${renderFileTreeNodes(fileTree, viewState.selectedFilePath, viewState.expandedFolders, viewState.isBusy, 0)}</ul>`
-      : '<p class="empty-state">No files found outside .git yet.</p>';
+      : '<p class="empty-state">No files found (outside .git and .obsidian) yet.</p>';
 
   const historyItems =
     viewState.history.length > 0
@@ -121,6 +123,14 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <p class="field-help">
           ${viewState.supportsFileSystemAccess ? 'Selected folder: ' : 'This browser does not expose the File System Access API. '}
           <strong>${escapeHtml(viewState.folderName ?? 'No folder selected')}</strong>
+        </p>
+
+        <label class="field-label" for="todowai-subfolder">Todowai subfolder</label>
+        <input class="text-input" id="todowai-subfolder" value="${escapeHtmlAttribute(viewState.subfolder)}" placeholder="todowai">
+        <p class="field-help">
+          New notes Todowai creates go here. You can still read and edit other notes anywhere in the vault (e.g. an
+          existing Obsidian vault) — Todowai just won't create or delete files outside this folder.
+          <code>.git</code> and <code>.obsidian</code> are always off-limits.
         </p>
         ${
           viewState.isBusy
