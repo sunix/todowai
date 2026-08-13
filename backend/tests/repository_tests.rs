@@ -126,3 +126,134 @@ fn list_files_excludes_git_internals() {
     assert!(files.contains(&"notes.md".to_string()));
     assert!(files.contains(&"todowai/task.md".to_string()));
 }
+
+#[test]
+fn obsidian_and_git_paths_are_rejected_for_read_and_write() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    std::fs::create_dir_all(temp.path().join(".obsidian")).unwrap();
+    std::fs::write(temp.path().join(".obsidian/workspace.json"), "{}").unwrap();
+    let repository = Repository::open(temp.path()).unwrap();
+
+    assert!(repository.read_file(".obsidian/workspace.json").is_err());
+    assert!(repository.read_file(".git/config").is_err());
+    assert!(repository
+        .write_file(".obsidian/workspace.json", "tampered")
+        .is_err());
+    // Case-insensitivity, matching how these names actually appear across filesystems.
+    assert!(repository.read_file(".OBSIDIAN/workspace.json").is_err());
+
+    // Untouched by the rejected write attempt.
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".obsidian/workspace.json")).unwrap(),
+        "{}"
+    );
+}
+
+#[test]
+fn obsidian_and_git_paths_never_appear_in_files_or_status() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    std::fs::create_dir_all(temp.path().join(".obsidian")).unwrap();
+    std::fs::write(temp.path().join(".obsidian/workspace.json"), "{}").unwrap();
+    let repository = Repository::open(temp.path()).unwrap();
+
+    let snapshot = repository.snapshot().unwrap();
+
+    assert!(!snapshot
+        .files
+        .iter()
+        .any(|path| path.to_ascii_lowercase().starts_with(".obsidian")));
+    assert!(!snapshot
+        .pending_changes
+        .iter()
+        .any(|change| change.filepath.to_ascii_lowercase().starts_with(".obsidian")));
+}
+
+#[test]
+fn editing_existing_file_outside_subfolder_succeeds() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    // notes.md is outside the default "todowai" subfolder but already tracked.
+    let result = repository.write_file("notes.md", "# Notes\n\nEdited from outside the subfolder");
+
+    assert!(result.is_ok());
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("notes.md")).unwrap(),
+        "# Notes\n\nEdited from outside the subfolder"
+    );
+}
+
+#[test]
+fn creating_new_file_outside_subfolder_is_rejected() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    let result = repository.write_file("brand-new.md", "should not be allowed here");
+
+    assert!(result.is_err());
+    assert!(!temp.path().join("brand-new.md").exists());
+}
+
+#[test]
+fn commit_all_does_not_stage_a_deletion_outside_the_subfolder() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    // notes.md (outside "todowai/") deleted by some other tool; a real edit inside the
+    // subfolder gives commit_all something manageable to actually commit.
+    std::fs::remove_file(temp.path().join("notes.md")).unwrap();
+    repository.write_file("todowai/task.md", "- [x] one").unwrap();
+
+    let result = repository
+        .commit_all("feat: update task", "Todowai User", "todowai@example.invalid")
+        .unwrap();
+
+    // The external deletion was deliberately left uncommitted, so it's still a pending change.
+    assert!(result
+        .pending_changes
+        .iter()
+        .any(|change| change.filepath == "notes.md" && change.change_type == ChangeType::Deleted));
+    // ...while the manageable in-subfolder edit was committed.
+    assert!(!result
+        .pending_changes
+        .iter()
+        .any(|change| change.filepath == "todowai/task.md"));
+}
+
+#[test]
+fn commit_all_does_not_stage_a_new_file_outside_the_subfolder() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    // A file appearing outside the subfolder via some other tool, not through write_file.
+    std::fs::write(temp.path().join("external.md"), "not from Todowai").unwrap();
+    repository.write_file("todowai/task.md", "- [x] one").unwrap();
+
+    let result = repository
+        .commit_all("feat: update task", "Todowai User", "todowai@example.invalid")
+        .unwrap();
+
+    assert!(result
+        .pending_changes
+        .iter()
+        .any(|change| change.filepath == "external.md" && change.change_type == ChangeType::Added));
+}
+
+#[test]
+fn set_subfolder_trims_slashes_and_falls_back_to_default() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let mut repository = Repository::open(temp.path()).unwrap();
+
+    repository.set_subfolder("  /custom/  ");
+    assert_eq!(repository.subfolder(), "custom");
+
+    repository.set_subfolder("   ");
+    assert_eq!(repository.subfolder(), "todowai");
+}

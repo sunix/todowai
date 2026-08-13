@@ -22,8 +22,11 @@ Set via environment variables:
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `TODOWAI_REPO_PATH` | `/vault` | Path to the git repository to serve (a Docker volume mount in the self-hosted deployment) |
+| `TODOWAI_SUBFOLDER` | `todowai` | Where Todowai's own files live. Outside it, existing files can be read and edited (e.g. notes in a coexisting Obsidian vault), but not created or deleted by Todowai. Set once at startup, not re-picked per session. |
 | `TODOWAI_UI_DIR` | `./static` | Path to the built web UI's static assets |
 | `PORT` | `8080` | HTTP port to listen on |
+
+`.git/` and `.obsidian/` are always off-limits — rejected on any read/write, and never listed or staged — regardless of subfolder configuration.
 
 ## API
 
@@ -37,7 +40,7 @@ Set via environment variables:
 
 Everything else falls back to serving the web UI's static assets (hash-based client routing means the server never needs to handle deep paths itself).
 
-Scope note: subfolder configuration and vault-access rules (`.obsidian`/`.git` exclusion, create/delete confined to a configured subfolder) are issue #60's job, not implemented here yet. Remote git sync (pull/push) is issue #62's job.
+Scope note: remote git sync (pull/push) is issue #62's job, not implemented here yet.
 
 ## Docker
 

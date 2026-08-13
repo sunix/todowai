@@ -16,7 +16,6 @@ async fn main() {
         .init();
 
     // TODOWAI_REPO_PATH is expected to be a Docker volume mount in the self-hosted deployment.
-    // Subfolder/vault-access configuration is #60's job, not this scaffold's.
     let repo_path = std::env::var("TODOWAI_REPO_PATH").unwrap_or_else(|_| "/vault".to_string());
     let ui_dir = std::env::var("TODOWAI_UI_DIR").unwrap_or_else(|_| "./static".to_string());
     let port: u16 = std::env::var("PORT")
@@ -24,8 +23,14 @@ async fn main() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(8080);
 
-    let repository = Repository::open(PathBuf::from(&repo_path).as_path())
+    let mut repository = Repository::open(PathBuf::from(&repo_path).as_path())
         .unwrap_or_else(|err| panic!("failed to open git repository at {repo_path}: {err}"));
+    // Set once at startup from config, not re-picked interactively per session — this backend
+    // has one vault and one subfolder for its whole lifetime, unlike the superseded per-browser-
+    // tab model.
+    if let Ok(subfolder) = std::env::var("TODOWAI_SUBFOLDER") {
+        repository.set_subfolder(&subfolder);
+    }
 
     let shared_repository: api::SharedRepository = Arc::new(Mutex::new(repository));
 
