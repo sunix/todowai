@@ -10,6 +10,8 @@ pub enum RepoError {
     NothingToCommit,
     Git(git2::Error),
     Io(std::io::Error),
+    /// The blocking task running the repository operation panicked (see api::with_repository).
+    TaskFailed(String),
 }
 
 impl std::fmt::Display for RepoError {
@@ -20,6 +22,7 @@ impl std::fmt::Display for RepoError {
             RepoError::NothingToCommit => write!(f, "nothing to commit"),
             RepoError::Git(err) => write!(f, "git error: {err}"),
             RepoError::Io(err) => write!(f, "io error: {err}"),
+            RepoError::TaskFailed(message) => write!(f, "internal error: {message}"),
         }
     }
 }
@@ -44,7 +47,7 @@ impl IntoResponse for RepoError {
             RepoError::NotFound(_) => StatusCode::NOT_FOUND,
             RepoError::InvalidPath(_) => StatusCode::BAD_REQUEST,
             RepoError::NothingToCommit => StatusCode::BAD_REQUEST,
-            RepoError::Git(_) | RepoError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            RepoError::Git(_) | RepoError::Io(_) | RepoError::TaskFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(json!({ "error": self.to_string() }))).into_response()
     }
