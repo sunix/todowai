@@ -52,3 +52,4 @@ docker run -p 8080:8080 -v /path/to/your/vault:/vault todowai
 ```
 
 Then open `http://localhost:8080`.
+
