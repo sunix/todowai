@@ -380,10 +380,24 @@ jobs:
               return;
             }
 
-            await github.rest.packages.deletePackageVersionForUser({
-              package_type: 'container',
-              package_name: packageName,
-              username: owner,
-              package_version_id: match.id,
-            });
-            console.log(`Deleted preview image ${tag} (version id ${match.id}).`);
+            try {
+              await github.rest.packages.deletePackageVersionForUser({
+                package_type: 'container',
+                package_name: packageName,
+                username: owner,
+                package_version_id: match.id,
+              });
+              console.log(`Deleted preview image ${tag} (version id ${match.id}).`);
+            } catch (error) {
+              // GHCR refuses to delete a package's last remaining version at all ("you must
+              // delete the package instead") — expected on a repo/package that has only ever
+              // had this one preview built. Nothing to do differently here: deleting the whole
+              // package would be a much bigger action than "clean up this one PR's tag", so
+              // just leave it for the next cleanup run (once another PR's preview exists
+              // alongside it) rather than escalating to that.
+              if (error.status === 400 && /last tagged version/i.test(error.message)) {
+                console.log(`${tag} is this package's only remaining version; leaving it rather than deleting the whole package.`);
+                return;
+              }
+              throw error;
+            }
