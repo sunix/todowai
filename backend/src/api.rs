@@ -1,34 +1,73 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use axum::extract::{Query, State};
-use axum::routing::{get, post};
+use axum::extract::{FromRef, Query, State};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
-use tokio::sync::Mutex;
 
 use crate::error::RepoError;
-use crate::repository::{CommitResult, Repository, Snapshot};
+use crate::repository::{CommitResult, RemoteConfig, Repository, Snapshot, SyncResult};
+use crate::sync::SyncScheduler;
 
+/// A plain std::sync::Mutex, not tokio's — every Repository operation (libgit2, std::fs) is
+/// blocking, so handlers run them via with_repository/spawn_blocking rather than holding an
+/// async mutex guard across an .await while doing blocking work on a tokio worker thread. This
+/// matters far more since #62 added pull/push: a multi-second network call must never stall
+/// every other request through a shared lock the way it would with a plain `.lock().await` here.
 pub type SharedRepository = Arc<Mutex<Repository>>;
 
-pub fn router(repository: SharedRepository) -> Router {
+#[derive(Clone)]
+pub struct AppState {
+    pub repository: SharedRepository,
+    pub scheduler: SyncScheduler,
+}
+
+impl FromRef<AppState> for SharedRepository {
+    fn from_ref(state: &AppState) -> Self {
+        state.repository.clone()
+    }
+}
+
+impl FromRef<AppState> for SyncScheduler {
+    fn from_ref(state: &AppState) -> Self {
+        state.scheduler.clone()
+    }
+}
+
+/// Runs a repository operation on the blocking-task pool, never on a tokio worker thread.
+async fn with_repository<T, F>(repository: SharedRepository, f: F) -> Result<T, RepoError>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut Repository) -> Result<T, RepoError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let mut repository = repository.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut repository)
+    })
+    .await
+    .unwrap_or_else(|join_error| Err(RepoError::TaskFailed(join_error.to_string())))
+}
+
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/repository", get(get_snapshot))
         .route("/api/repository/file", get(read_file).put(write_file))
         .route("/api/repository/commit", post(commit_all))
-        .with_state(repository)
+        .route("/api/sync/remote", put(set_remote))
+        .route("/api/sync/status", get(sync_status))
+        .route("/api/sync/pull", post(sync_pull))
+        .route("/api/sync/push", post(sync_push))
+        .with_state(state)
 }
 
 async fn health() -> &'static str {
     "ok"
 }
 
-async fn get_snapshot(
-    State(repository): State<SharedRepository>,
-) -> Result<Json<Snapshot>, RepoError> {
-    let repository = repository.lock().await;
-    Ok(Json(repository.snapshot()?))
+async fn get_snapshot(State(repository): State<SharedRepository>) -> Result<Json<Snapshot>, RepoError> {
+    let snapshot = with_repository(repository, |repo| repo.snapshot()).await?;
+    Ok(Json(snapshot))
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,8 +79,7 @@ async fn read_file(
     State(repository): State<SharedRepository>,
     Query(query): Query<FilePathQuery>,
 ) -> Result<String, RepoError> {
-    let repository = repository.lock().await;
-    repository.read_file(&query.path)
+    with_repository(repository, move |repo| repo.read_file(&query.path)).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,9 +93,12 @@ async fn write_file(
     State(repository): State<SharedRepository>,
     Json(body): Json<WriteFileRequest>,
 ) -> Result<Json<Snapshot>, RepoError> {
-    let repository = repository.lock().await;
-    repository.write_file(&body.path, &body.content)?;
-    Ok(Json(repository.snapshot()?))
+    let snapshot = with_repository(repository, move |repo| {
+        repo.write_file(&body.path, &body.content)?;
+        repo.snapshot()
+    })
+    .await?;
+    Ok(Json(snapshot))
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,14 +111,60 @@ pub struct CommitRequest {
 
 async fn commit_all(
     State(repository): State<SharedRepository>,
+    State(scheduler): State<SyncScheduler>,
     Json(body): Json<CommitRequest>,
 ) -> Result<Json<CommitResult>, RepoError> {
-    let repository = repository.lock().await;
-    Ok(Json(repository.commit_all(
-        &body.message,
-        &body.author_name,
-        &body.author_email,
-    )?))
+    let result = with_repository(repository, move |repo| {
+        repo.commit_all(&body.message, &body.author_name, &body.author_email)
+    })
+    .await?;
+
+    // A commit is the only thing that can actually be pushed, so scheduling happens here rather
+    // than on every save. Debounced (not immediate): manual edits shouldn't push on every single
+    // commit made in quick succession — see SyncScheduler::request_push.
+    scheduler.request_push(false).await;
+
+    Ok(Json(result))
+}
+
+async fn set_remote(
+    State(repository): State<SharedRepository>,
+    Json(body): Json<Option<RemoteConfig>>,
+) -> Result<(), RepoError> {
+    with_repository(repository, move |repo| {
+        repo.set_remote(body);
+        Ok(())
+    })
+    .await
+}
+
+async fn sync_status(State(scheduler): State<SyncScheduler>) -> Json<SyncResult> {
+    Json(scheduler.status())
+}
+
+async fn sync_pull(State(scheduler): State<SyncScheduler>) -> Json<SyncResult> {
+    scheduler.pull_now().await;
+    Json(scheduler.status())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRequest {
+    #[serde(default = "default_true")]
+    immediate: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn sync_push(
+    State(scheduler): State<SyncScheduler>,
+    body: Option<Json<PushRequest>>,
+) -> Json<SyncResult> {
+    let immediate = body.map(|Json(request)| request.immediate).unwrap_or(true);
+    scheduler.request_push(immediate).await;
+    Json(scheduler.status())
 }
 
 #[cfg(test)]
@@ -85,6 +172,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::time::Duration;
     use tower::ServiceExt;
 
     fn init_repo(dir: &std::path::Path) -> Repository {
@@ -103,11 +191,21 @@ mod tests {
         Repository::open(dir).unwrap()
     }
 
+    fn test_state(repository: Repository) -> AppState {
+        let repository: SharedRepository = Arc::new(Mutex::new(repository));
+        let backend = crate::sync::RepositoryBackend {
+            repository: repository.clone(),
+            author_name: "Todowai Sync".to_string(),
+            author_email: "todowai-sync@example.invalid".to_string(),
+        };
+        let scheduler = SyncScheduler::new(backend, Duration::from_millis(50), Duration::from_secs(3600));
+        AppState { repository, scheduler }
+    }
+
     #[tokio::test]
     async fn health_check_responds_ok() {
         let temp = tempfile::tempdir().unwrap();
-        let repository: SharedRepository = Arc::new(Mutex::new(init_repo(temp.path())));
-        let app = router(repository);
+        let app = router(test_state(init_repo(temp.path())));
 
         let response = app
             .oneshot(Request::builder().uri("/api/health").body(Body::empty()).unwrap())
@@ -120,8 +218,7 @@ mod tests {
     #[tokio::test]
     async fn snapshot_reflects_seeded_commit() {
         let temp = tempfile::tempdir().unwrap();
-        let repository: SharedRepository = Arc::new(Mutex::new(init_repo(temp.path())));
-        let app = router(repository);
+        let app = router(test_state(init_repo(temp.path())));
 
         let response = app
             .oneshot(
@@ -146,8 +243,7 @@ mod tests {
     #[tokio::test]
     async fn write_then_commit_round_trip() {
         let temp = tempfile::tempdir().unwrap();
-        let repository: SharedRepository = Arc::new(Mutex::new(init_repo(temp.path())));
-        let app = router(repository);
+        let app = router(test_state(init_repo(temp.path())));
 
         let write_response = app
             .clone()
@@ -200,8 +296,7 @@ mod tests {
     #[tokio::test]
     async fn path_traversal_is_rejected() {
         let temp = tempfile::tempdir().unwrap();
-        let repository: SharedRepository = Arc::new(Mutex::new(init_repo(temp.path())));
-        let app = router(repository);
+        let app = router(test_state(init_repo(temp.path())));
 
         let response = app
             .oneshot(
@@ -214,5 +309,21 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn sync_status_reports_no_remote_by_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(Request::builder().uri("/api/sync/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let result: SyncResult = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result.status, crate::repository::SyncStatus::Error);
     }
 }
