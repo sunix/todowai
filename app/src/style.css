@@ -16,13 +16,14 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .sidebar {
@@ -31,7 +32,71 @@ body {
   display: flex;
   flex-direction: column;
   padding: 16px 10px;
+  /* Without an explicit height, a CSS grid row stretches every cell to match its *tallest*
+     cell — main's content, which is often far taller than the viewport — so a sidebar-footer
+     positioned via `margin-top: auto` would sit way below the visible screen, not fixed at the
+     viewport's bottom edge as intended. Pinning the sidebar to the viewport and letting only
+     main scroll internally is what actually keeps the sync indicator always in view. */
+  height: 100vh;
+  overflow-y: auto;
+}
+
+#navlist {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.sync-dot-synced {
+  background: #8ee59d;
+}
+
+.sync-dot-offline {
+  background: #f0c674;
+}
+
+.sync-dot-conflict,
+.sync-dot-error {
+  background: #ff9b9b;
+}
+
+/* Two classes in this selector, not one: `.sidebar button` (a class + an element) outweighs a
+   single class alone in specificity, which would otherwise let its `all: unset` win over
+   `.primary-button`'s styling for this button specifically, since it lives inside .sidebar. */
+.primary-button.sync-now-button {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .sidebar button {
@@ -63,6 +128,8 @@ body {
 
 main {
   padding: 24px 32px;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .title {
