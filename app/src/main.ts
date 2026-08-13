@@ -1,6 +1,6 @@
 import './style.css';
 import { topLevelFolders } from './file-tree';
-import { RepositoryController, supportsFileSystemAccess } from './repository';
+import { commitAll, fetchSnapshot, readFile, writeFile } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import { renderScreen, renderSettingsScreen } from './screens';
 
@@ -17,14 +17,13 @@ const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const main = document.querySelector<HTMLElement>('#main')!;
 
 type AppState = {
-  repository: RepositoryController | null;
   folderName: string | null;
+  subfolder: string;
   files: string[];
   selectedFilePath: string;
   selectedFileContent: string;
   history: import('./repository').RepositoryHistoryEntry[];
   pendingChanges: import('./repository').RepositoryChange[];
-  subfolder: string;
   expandedFolders: Set<string>;
   isBusy: boolean;
   busyLabel: string;
@@ -36,14 +35,13 @@ type AppState = {
 };
 
 const state: AppState = {
-  repository: null,
   folderName: null,
+  subfolder: '',
   files: [],
   selectedFilePath: '',
   selectedFileContent: '',
   history: [],
   pendingChanges: [],
-  subfolder: 'todowai',
   expandedFolders: new Set(),
   isBusy: false,
   busyLabel: '',
@@ -73,14 +71,13 @@ function render(): void {
   main.innerHTML =
     screen === 'settings'
       ? renderSettingsScreen({
-          supportsFileSystemAccess: supportsFileSystemAccess(),
           folderName: state.folderName,
+          subfolder: state.subfolder,
           files: state.files,
           selectedFilePath: state.selectedFilePath,
           selectedFileContent: state.selectedFileContent,
           history: state.history,
           pendingChanges: state.pendingChanges,
-          subfolder: state.subfolder,
           expandedFolders: state.expandedFolders,
           isBusy: state.isBusy,
           busyLabel: state.busyLabel,
@@ -103,33 +100,14 @@ function render(): void {
 onRouteChange(render);
 render();
 
+// There's nothing to "open" any more — the backend already owns the vault (mounted via Docker
+// at startup) — so this loads automatically once on startup, rather than waiting for a picker
+// button click like the superseded browser-only flow did.
+void loadSnapshot('Connecting to backend…');
+
 function bindSettingsScreen(): void {
-  main.querySelector<HTMLButtonElement>('#open-repo-button')?.addEventListener('click', async () => {
-    await runRepositoryAction('Opening repository…', async (setLabel) => {
-      state.repository = await RepositoryController.openWithPicker();
-      state.repository.setSubfolder(state.subfolder);
-
-      setLabel('Loading repository status…');
-      const snapshot = await state.repository.snapshot();
-      state.folderName = snapshot.folderName;
-      state.files = snapshot.files;
-      state.history = snapshot.history;
-      state.pendingChanges = snapshot.pendingChanges;
-      state.selectedFilePath = snapshot.files[0] ?? '';
-      state.selectedFileContent = state.selectedFilePath
-        ? await state.repository.readTextFile(state.selectedFilePath)
-        : '';
-
-      // Auto-expand first-level folders so a freshly opened repo shows some content
-      // immediately, rather than a flat list of collapsed top-level entries.
-      state.expandedFolders = new Set(topLevelFolders(state.files));
-      state.statusMessage = `Opened ${state.folderName}.`;
-    });
-  });
-
-  main.querySelector<HTMLInputElement>('#todowai-subfolder')?.addEventListener('input', (event) => {
-    state.subfolder = (event.target as HTMLInputElement).value;
-    state.repository?.setSubfolder(state.subfolder);
+  main.querySelector<HTMLButtonElement>('#refresh-repo-button')?.addEventListener('click', async () => {
+    await loadSnapshot('Refreshing from backend…');
   });
 
   main.querySelectorAll<HTMLButtonElement>('[data-toggle-folder]').forEach((button) => {
@@ -153,22 +131,18 @@ function bindSettingsScreen(): void {
   main.querySelectorAll<HTMLButtonElement>('[data-file-path]').forEach((button) => {
     button.addEventListener('click', async () => {
       const filePath = button.dataset.filePath;
-      if (!filePath || !state.repository) {
+      if (!filePath) {
         return;
       }
 
       await runRepositoryAction('Loading file…', async () => {
         state.selectedFilePath = filePath;
-        state.selectedFileContent = await state.repository!.readTextFile(filePath);
+        state.selectedFileContent = await readFile(filePath);
       });
     });
   });
 
   main.querySelector<HTMLButtonElement>('#save-file-button')?.addEventListener('click', async () => {
-    if (!state.repository) {
-      return;
-    }
-
     const pathInput = main.querySelector<HTMLInputElement>('#repo-file-path');
     const contentInput = main.querySelector<HTMLTextAreaElement>('#repo-file-content');
     if (!pathInput || !contentInput) {
@@ -176,14 +150,12 @@ function bindSettingsScreen(): void {
     }
 
     await runRepositoryAction('Saving…', async () => {
-      const result = await state.repository!.writeTextFile(pathInput.value, contentInput.value);
-      // writeTextFile already re-checks just this one file's status internally (not the whole
-      // vault), so its result is used directly — no separate "reload everything" step needed.
-      state.selectedFilePath = result.filepath;
+      const snapshot = await writeFile(pathInput.value, contentInput.value);
+      state.selectedFilePath = pathInput.value;
       state.selectedFileContent = contentInput.value;
-      state.files = result.files;
-      state.pendingChanges = result.pendingChanges;
-      state.statusMessage = `Saved ${result.filepath}.`;
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.statusMessage = `Saved ${pathInput.value}.`;
     });
   });
 
@@ -200,34 +172,42 @@ function bindSettingsScreen(): void {
   });
 
   main.querySelector<HTMLButtonElement>('#commit-changes-button')?.addEventListener('click', async () => {
-    if (!state.repository) {
-      return;
-    }
-
     await runRepositoryAction('Committing…', async (setLabel) => {
-      const result = await state.repository!.commitAll(
-        state.commitMessage,
-        state.commitAuthorName,
-        state.commitAuthorEmail
-      );
-      // Committing only touches .git/, never the working tree, so the file list returned by
-      // commitAll is still accurate and pending changes are empty by definition — no separate
-      // full-tree reload needed. Only history (reading recent commit objects, not the working
-      // tree) is genuinely new information after a commit.
-      state.files = result.files;
-      state.pendingChanges = result.pendingChanges;
-      if (!state.files.includes(state.selectedFilePath)) {
+      const result = await commitAll(state.commitMessage, state.commitAuthorName, state.commitAuthorEmail);
+      state.statusMessage = `Committed ${result.oid.slice(0, 7)}.`;
+
+      // The commit endpoint doesn't return history (committing doesn't change which files
+      // exist), so a full snapshot refresh picks that up along with anything else — cheap on
+      // the backend, unlike the old browser engine's full-vault walks.
+      setLabel('Loading history…');
+      const snapshot = await fetchSnapshot();
+      state.files = snapshot.files;
+      state.history = snapshot.history;
+      state.pendingChanges = snapshot.pendingChanges;
+      if (state.selectedFilePath && !state.files.includes(state.selectedFilePath)) {
         // Rare: the selected file was itself deleted as part of this commit.
         state.selectedFilePath = state.files[0] ?? '';
-        state.selectedFileContent = state.selectedFilePath
-          ? await state.repository!.readTextFile(state.selectedFilePath)
-          : '';
+        state.selectedFileContent = state.selectedFilePath ? await readFile(state.selectedFilePath) : '';
       }
-
-      setLabel('Loading history…');
-      state.history = await state.repository!.recentHistory();
-      state.statusMessage = `Committed ${result.oid.slice(0, 7)}.`;
     });
+  });
+}
+
+async function loadSnapshot(busyLabel: string): Promise<void> {
+  await runRepositoryAction(busyLabel, async () => {
+    const snapshot = await fetchSnapshot();
+    state.folderName = snapshot.folderName;
+    state.subfolder = snapshot.subfolder;
+    state.files = snapshot.files;
+    state.history = snapshot.history;
+    state.pendingChanges = snapshot.pendingChanges;
+    state.selectedFilePath = snapshot.files[0] ?? '';
+    state.selectedFileContent = state.selectedFilePath ? await readFile(state.selectedFilePath) : '';
+
+    // Auto-expand first-level folders so a freshly loaded vault shows some content
+    // immediately, rather than a flat list of collapsed top-level entries.
+    state.expandedFolders = new Set(topLevelFolders(state.files));
+    state.statusMessage = `Connected to ${state.folderName}.`;
   });
 }
 
@@ -241,7 +221,7 @@ async function runRepositoryAction(
   state.busyLabel = label;
   // Paint the busy state immediately — without this render(), the UI would stay on its
   // previous frame until `action` resolves, since nothing yields back to the browser
-  // between setting isBusy and the (potentially slow, e.g. walking a large vault) await below.
+  // between setting isBusy and the await below.
   render();
 
   const setLabel = (nextLabel: string) => {
