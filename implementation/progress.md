@@ -14,6 +14,7 @@
 | [#59](https://github.com/sunix/todowai/issues/59) | Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide) | Claude | [#67](https://github.com/sunix/todowai/pull/67) | Merged |
 | [#66](https://github.com/sunix/todowai/issues/66) | Per-PR backend preview image via GHCR (/preview comment) | Claude | [#68](https://github.com/sunix/todowai/pull/68), [#70](https://github.com/sunix/todowai/pull/70), [#71](https://github.com/sunix/todowai/pull/71), [#73](https://github.com/sunix/todowai/pull/73) | Merged |
 | [#60](https://github.com/sunix/todowai/issues/60) | Backend: configurable repo subfolder + vault access rules | Claude | [#72](https://github.com/sunix/todowai/pull/72) | Merged |
+| [#61](https://github.com/sunix/todowai/issues/61) | Web UI: integrate with the backend API | Claude | [#75](https://github.com/sunix/todowai/pull/75) | In Review |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
