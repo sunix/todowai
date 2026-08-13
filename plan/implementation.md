@@ -46,6 +46,14 @@ later, via Tauri for desktop/mobile (M8).
   - [ ] A merge conflict during pull surfaces as a clear, non-blocking error (full resolution UI is #13)
   - [ ] Verified behavior with the network unreachable: app remains usable, edits still save locally, sync-status reflects offline/retry
 
+- **Web UI: remote sync configuration + status indicator** (M) — https://github.com/sunix/todowai/issues/77
+  Adds the UI #62 deliberately left out (backend-only, verified via direct API calls): a global sync-status indicator matching the Phase 2 mockup's sidebar-footer design (extended to all four backend statuses, not just the mockup's two), and Remote URL/Username/Token fields in Settings wired to `PUT /api/sync/remote` — not in the mockup at all, since it predates ADR-001.
+  - [ ] Sync-status indicator visible on every screen, matching the mockup's placement
+  - [ ] Indicator distinguishes all four sync states (synced/offline/conflict/error)
+  - [ ] Manual "Sync now" action triggers a pull/push and reflects the result
+  - [ ] Settings has Remote URL/Username/Token fields wired to `PUT /api/sync/remote`; empty URL clears the remote
+  - [ ] Indicator/fields reflect actual backend state on page load, not just optimistic local state
+
 - **Non-blocking git 3-way merge conflict handling** (M) — https://github.com/sunix/todowai/issues/13
   Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing. Now depends on #62 (the Rust-core sync engine) rather than the closed #12 — behavior/UX unchanged by the pivot.
   - [ ] Non-overlapping concurrent edits merge automatically with no user action
