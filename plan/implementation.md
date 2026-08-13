@@ -32,11 +32,11 @@ later, via Tauri for desktop/mobile (M8).
   - [x] Editing existing files outside the subfolder succeeds; creating new ones there is rejected
   - [x] Externally-deleted files outside the subfolder are not staged/committed by Todowai
 
-- **Web UI: integrate with the backend API** (M) — https://github.com/sunix/todowai/issues/61
-  Swap the web UI's in-browser `RepositoryController` (File System Access API + isomorphic-git) for an HTTP client against the new backend, with no change to screens/UX.
-  - [ ] All repository operations in the UI go through the backend API
-  - [ ] No File System Access API / isomorphic-git code paths remain in the web UI
-  - [ ] Existing UI/UX behaves the same from the user's perspective
+- **Web UI: integrate with the backend API** (M) — https://github.com/sunix/todowai/issues/61 — *Merged (#75).*
+  Swap the web UI's in-browser `RepositoryController` (File System Access API + isomorphic-git) for an HTTP client against the new backend, with no change to screens/UX. The old picker-based "open a repository" flow is gone entirely (there's nothing to open — the backend already owns the vault); replaced with an automatic load on startup plus a manual refresh button.
+  - [x] All repository operations in the UI go through the backend API
+  - [x] No File System Access API / isomorphic-git code paths remain in the web UI
+  - [x] Existing UI/UX behaves the same from the user's perspective — verified end-to-end against a real Docker image + test vault by driving the actual rendered UI with Playwright
 
 - **Rust core: git pull/push sync engine (offline-first)** (L) — https://github.com/sunix/todowai/issues/62
   Replaces #12 (closed — the browser-based attempt hit an unfixable GitHub CORS wall, see closed PR #58 and ADR-001). Same design (debounced/immediate push, background pull, non-blocking offline/conflict status), implemented via git2-rs/gitoxide on the backend where CORS doesn't apply.
