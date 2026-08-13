@@ -25,12 +25,12 @@ later, via Tauri for desktop/mobile (M8).
   - [x] Backend HTTP service exposes these operations locally
   - [x] Single Docker image bundles backend + web UI static assets; `docker run` with a mounted repo folder works end-to-end
 
-- **Backend: configurable repo subfolder + vault access rules** (M) — https://github.com/sunix/todowai/issues/60
-  Replaces #11 (closed). Same subfolder/vault-access rules as before (`.git`/`.obsidian` off-limits, edit-anywhere/create-only-inside-subfolder), re-implemented against real backend filesystem access.
-  - [ ] Configurable Todowai subfolder name (default `todowai`), set via mounted path/config
-  - [ ] `.obsidian/` and `.git/` rejected on any read/write and never listed
-  - [ ] Editing existing files outside the subfolder succeeds; creating new ones there is rejected
-  - [ ] Externally-deleted files outside the subfolder are not staged/committed by Todowai
+- **Backend: configurable repo subfolder + vault access rules** (M) — https://github.com/sunix/todowai/issues/60 — *Merged (#72).*
+  Replaces #11 (closed). Same subfolder/vault-access rules as before (`.git`/`.obsidian` off-limits, edit-anywhere/create-only-inside-subfolder), re-implemented against real backend filesystem access. `commit_all` now stages each pending change individually (not a blanket pathspec) so it can precisely exclude non-manageable changes outside the subfolder — covers both externally deleted *and* externally added files there, not just deletions.
+  - [x] Configurable Todowai subfolder name (default `todowai`), set via mounted path/config
+  - [x] `.obsidian/` and `.git/` rejected on any read/write and never listed
+  - [x] Editing existing files outside the subfolder succeeds; creating new ones there is rejected
+  - [x] Externally-deleted files outside the subfolder are not staged/committed by Todowai
 
 - **Web UI: integrate with the backend API** (M) — https://github.com/sunix/todowai/issues/61
   Swap the web UI's in-browser `RepositoryController` (File System Access API + isomorphic-git) for an HTTP client against the new backend, with no change to screens/UX.
