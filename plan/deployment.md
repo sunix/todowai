@@ -34,12 +34,12 @@ only remote is the user's own configured git host.
   - [ ] Image is versioned consistently with the release-please-driven version
   - [ ] Documented `docker run` instructions let a user self-host with a single command against a mounted vault folder
 
-- **Per-PR backend preview image via GHCR (`/preview` comment)** (M) — https://github.com/sunix/todowai/issues/66
-  Extends the `/preview` comment (see #52's Surge UI preview) to also build and push a per-PR Docker image to GHCR, once #59/#64 exist, so a reviewer can `docker run` the exact PR against a real test vault instead of only eyeballing the UI shell.
-  - [ ] `/preview` builds and pushes a `pr-<number>`-tagged image to GHCR, alongside the existing Surge preview
-  - [ ] The triggering comment includes a ready-to-run `docker run` command for that tag
-  - [ ] A second `/preview` while a build is running cancels the in-flight one, matching the Surge preview's behavior
-  - [ ] Closing the PR cleans up its image tag from GHCR
+- **Per-PR backend preview image via GHCR (`/preview` comment)** (M) — https://github.com/sunix/todowai/issues/66 — *Merged (#68, #70, #71, #73).*
+  Extends the `/preview` comment (see #52's Surge UI preview) to also build and push a per-PR Docker image to GHCR, once #59/#64 exist, so a reviewer can `docker run` the exact PR against a real test vault instead of only eyeballing the UI shell. Took three follow-up fixes after live-testing: disk space/`mode=max` cache export, dropping the flaky GHA cache entirely, and GHCR's refusal to delete a package's last remaining version.
+  - [x] `/preview` builds and pushes a `pr-<number>`-tagged image to GHCR, alongside the existing Surge preview
+  - [x] The triggering comment includes a ready-to-run `docker run` command for that tag
+  - [x] A second `/preview` while a build is running cancels the in-flight one, matching the Surge preview's behavior
+  - [x] Closing the PR cleans up its image tag from GHCR (verified via a genuine deletion once the package had more than one tag, not just the last-version-skip path)
 
 - **Tauri desktop build pipeline with code signing** (L) — https://github.com/sunix/todowai/issues/38
   Set up CI builds for macOS/Windows/Linux Tauri installers (backed by the shared Rust core), including code signing for macOS and Windows.
