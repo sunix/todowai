@@ -26,14 +26,13 @@ export function renderScreen(screen: ScreenId): string {
 }
 
 type SettingsScreenState = {
-  supportsFileSystemAccess: boolean;
   folderName: string | null;
+  subfolder: string;
   files: string[];
   selectedFilePath: string;
   selectedFileContent: string;
   history: RepositoryHistoryEntry[];
   pendingChanges: RepositoryChange[];
-  subfolder: string;
   expandedFolders: Set<string>;
   isBusy: boolean;
   busyLabel: string;
@@ -52,7 +51,6 @@ const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
 
 export function renderSettingsScreen(state?: SettingsScreenState): string {
   const viewState = state ?? {
-    supportsFileSystemAccess: false,
     folderName: null,
     files: [],
     selectedFilePath: '',
@@ -112,25 +110,23 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
 
     <section class="settings-stack">
       <article class="card">
-        <h2 class="section-title">Local repository</h2>
+        <h2 class="section-title">Repository</h2>
         <p class="section-copy">
-          Open an existing local repository with the File System Access API. Todowai uses isomorphic-git for reads,
-          writes, commits, and history.
+          Served by the backend from its mounted vault — there's nothing to open or pick here.
         </p>
-        <button class="primary-button" id="open-repo-button" ${viewState.supportsFileSystemAccess && !viewState.isBusy ? '' : 'disabled'}>
-          Open local git repository
+        <button class="primary-button" id="refresh-repo-button" ${viewState.isBusy ? 'disabled' : ''}>
+          Refresh from backend
         </button>
         <p class="field-help">
-          ${viewState.supportsFileSystemAccess ? 'Selected folder: ' : 'This browser does not expose the File System Access API. '}
-          <strong>${escapeHtml(viewState.folderName ?? 'No folder selected')}</strong>
+          Connected vault: <strong>${escapeHtml(viewState.folderName ?? 'Not connected yet')}</strong>
         </p>
 
-        <label class="field-label" for="todowai-subfolder">Todowai subfolder</label>
-        <input class="text-input" id="todowai-subfolder" value="${escapeHtmlAttribute(viewState.subfolder)}" placeholder="todowai">
+        <p class="field-label">Todowai subfolder</p>
         <p class="field-help">
-          New notes Todowai creates go here. You can still read and edit other notes anywhere in the vault (e.g. an
-          existing Obsidian vault) — Todowai just won't create or delete files outside this folder.
-          <code>.git</code> and <code>.obsidian</code> are always off-limits.
+          <code>${escapeHtml(viewState.subfolder)}</code> — configured on the backend (<code>TODOWAI_SUBFOLDER</code>),
+          not editable here. New notes Todowai creates go here. You can still read and edit other notes anywhere in
+          the vault (e.g. an existing Obsidian vault) — Todowai just won't create or delete files outside this
+          folder. <code>.git</code> and <code>.obsidian</code> are always off-limits.
         </p>
         ${
           viewState.isBusy

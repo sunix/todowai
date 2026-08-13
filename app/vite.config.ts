@@ -1,17 +1,8 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
   plugins: [
-    // isomorphic-git (and its dependencies) assume a Node-like environment —
-    // they reference `Buffer` and `process` directly, which don't exist as
-    // browser globals. Without this, reading any existing git object (e.g.
-    // commit history, or committing onto a non-empty repo) throws
-    // `ReferenceError: Buffer is not defined` at runtime.
-    nodePolyfills({
-      include: ['buffer', 'process'],
-    }),
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
@@ -27,4 +18,14 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    // The production image serves the built UI and the API from the same origin (see
+    // backend/src/main.rs), so the app code just uses relative /api/... paths. This proxy
+    // makes that work in local dev too — `npm run dev` talks to Vite's own dev server, which
+    // has no /api routes of its own, so anything under /api is forwarded to a backend running
+    // locally via `cargo run` (see backend/README.md) instead of 404ing.
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
+  },
 });
