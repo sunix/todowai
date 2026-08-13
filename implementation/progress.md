@@ -12,7 +12,8 @@
 | [#11](https://github.com/sunix/todowai/issues/11) | Settings: configurable git repo path + subfolder | Claude | [#57](https://github.com/sunix/todowai/pull/57) | Merged |
 | [#12](https://github.com/sunix/todowai/issues/12) | Offline-first sync engine (pull/push scheduling) | Claude | [#58](https://github.com/sunix/todowai/pull/58) (closed, not merged) | Superseded — see [ADR-001](../specification/decisions.md) |
 | [#59](https://github.com/sunix/todowai/issues/59) | Scaffold Rust core + self-hosted backend service (git2-rs/gitoxide) | Claude | [#67](https://github.com/sunix/todowai/pull/67) | Merged |
-| [#66](https://github.com/sunix/todowai/issues/66) | Per-PR backend preview image via GHCR (/preview comment) | Claude | [#68](https://github.com/sunix/todowai/pull/68) | In Review |
+| [#66](https://github.com/sunix/todowai/issues/66) | Per-PR backend preview image via GHCR (/preview comment) | Claude | [#68](https://github.com/sunix/todowai/pull/68), [#70](https://github.com/sunix/todowai/pull/70), [#71](https://github.com/sunix/todowai/pull/71), [#73](https://github.com/sunix/todowai/pull/73) | Merged (#73 pending review) |
+| [#60](https://github.com/sunix/todowai/issues/60) | Backend: configurable repo subfolder + vault access rules | Claude | [#72](https://github.com/sunix/todowai/pull/72) | In Review |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
