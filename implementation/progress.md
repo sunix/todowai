@@ -15,7 +15,7 @@
 | [#66](https://github.com/sunix/todowai/issues/66) | Per-PR backend preview image via GHCR (/preview comment) | Claude | [#68](https://github.com/sunix/todowai/pull/68), [#70](https://github.com/sunix/todowai/pull/70), [#71](https://github.com/sunix/todowai/pull/71), [#73](https://github.com/sunix/todowai/pull/73) | Merged |
 | [#60](https://github.com/sunix/todowai/issues/60) | Backend: configurable repo subfolder + vault access rules | Claude | [#72](https://github.com/sunix/todowai/pull/72) | Merged |
 | [#61](https://github.com/sunix/todowai/issues/61) | Web UI: integrate with the backend API | Claude | [#75](https://github.com/sunix/todowai/pull/75) | Merged |
-| [#62](https://github.com/sunix/todowai/issues/62) | Rust core: git pull/push sync engine (offline-first) | Claude | [#76](https://github.com/sunix/todowai/pull/76) | In Review |
+| [#62](https://github.com/sunix/todowai/issues/62) | Rust core: git pull/push sync engine (offline-first) | Claude | [#76](https://github.com/sunix/todowai/pull/76) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

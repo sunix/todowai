@@ -38,13 +38,13 @@ later, via Tauri for desktop/mobile (M8).
   - [x] No File System Access API / isomorphic-git code paths remain in the web UI
   - [x] Existing UI/UX behaves the same from the user's perspective — verified end-to-end against a real Docker image + test vault by driving the actual rendered UI with Playwright
 
-- **Rust core: git pull/push sync engine (offline-first)** (L) — https://github.com/sunix/todowai/issues/62
-  Replaces #12 (closed — the browser-based attempt hit an unfixable GitHub CORS wall, see closed PR #58 and ADR-001). Same design (debounced/immediate push, background pull, non-blocking offline/conflict status), implemented via git2-rs/gitoxide on the backend where CORS doesn't apply.
-  - [ ] Backend supports configuring a remote URL + credentials (username/PAT), in-memory only
-  - [ ] Pull attempts on backend start and on a background interval; failures never block the API/UI
-  - [ ] Shared push entry point with an `immediate` flag; `immediate: true` exercised directly to stand in for future AI edits
-  - [ ] A merge conflict during pull surfaces as a clear, non-blocking error (full resolution UI is #13)
-  - [ ] Verified behavior with the network unreachable: app remains usable, edits still save locally, sync-status reflects offline/retry
+- **Rust core: git pull/push sync engine (offline-first)** (L) — https://github.com/sunix/todowai/issues/62 — *Merged (#76).*
+  Replaces #12 (closed — the browser-based attempt hit an unfixable GitHub CORS wall, see closed PR #58 and ADR-001). Same design (debounced/immediate push, background pull, non-blocking offline/conflict status), implemented via git2-rs on the backend where CORS doesn't apply. Also switched the shared repository lock to `std::sync::Mutex` + `spawn_blocking` throughout, since a blocking network call could otherwise stall every other request.
+  - [x] Backend supports configuring a remote URL + credentials (username/PAT), in-memory only
+  - [x] Pull attempts on backend start and on a background interval; failures never block the API/UI
+  - [x] Shared push entry point with an `immediate` flag; `immediate: true` exercised directly to stand in for future AI edits
+  - [x] A merge conflict during pull surfaces as a clear, non-blocking error (full resolution UI is #13)
+  - [x] Verified behavior with the network unreachable: app remains usable, edits still save locally, sync-status reflects offline/retry
 
 - **Web UI: remote sync configuration + status indicator** (M) — https://github.com/sunix/todowai/issues/77
   Adds the UI #62 deliberately left out (backend-only, verified via direct API calls): a global sync-status indicator matching the Phase 2 mockup's sidebar-footer design (extended to all four backend statuses, not just the mockup's two), and Remote URL/Username/Token fields in Settings wired to `PUT /api/sync/remote` — not in the mockup at all, since it predates ADR-001.
