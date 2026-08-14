@@ -47,10 +47,12 @@ Set via environment variables:
 | `GET` | `/api/sync/status` | Current sync status (`synced` / `offline` / `conflict` / `error`) and a message |
 | `POST` | `/api/sync/pull` | Pull immediately (in addition to on startup and the background interval) |
 | `POST` | `/api/sync/push` | Push (`{ immediate }`, default `true`) — `immediate: false` uses the same debounce as a commit |
+| `GET` | `/api/sync/conflict` | The real conflict (if any) still pending resolution — `{ files: [...] }`, or `null` when clean |
+| `POST` | `/api/sync/conflict/resolve` | Resolve a pending conflict (`{ resolutions: [{ path, keep: "mine" \| "theirs" }] }`, one entry per conflicted file), then pushes the result |
 
 Everything else falls back to serving the web UI's static assets (hash-based client routing means the server never needs to handle deep paths itself).
 
-Sync never blocks a request or throws into the UI — a pull/push failure (no network, a merge conflict, no remote configured) always comes back as a normal `SyncResult`, never a crash. A merge conflict aborts cleanly back to the pre-merge state (local work untouched, just unsynced) rather than leaving the working tree full of conflict markers with no resolution UI to handle them yet — that's issue #13's job.
+Sync never blocks a request or throws into the UI — a pull/push failure (no network, a merge conflict, no remote configured) always comes back as a normal `SyncResult`, never a crash. Non-overlapping concurrent edits (different files, or non-overlapping hunks) merge automatically with no user action, whether that's discovered via a background pull or a rejected push retried through the same 3-way merge. A genuine overlapping edit aborts cleanly back to the pre-merge state (local work untouched, just unsynced) and surfaces the conflicted file(s) via `/api/sync/conflict` for a keep-mine/keep-theirs resolution through `/api/sync/conflict/resolve` — a full diff/merge editor is out of scope for v1.
 
 ## Docker
 

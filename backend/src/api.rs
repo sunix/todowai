@@ -6,7 +6,9 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::error::RepoError;
-use crate::repository::{CommitResult, ConfiguredRemote, RemoteConfig, Repository, Snapshot, SyncResult};
+use crate::repository::{
+    CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
+};
 use crate::sync::SyncScheduler;
 
 /// A plain std::sync::Mutex, not tokio's — every Repository operation (libgit2, std::fs) is
@@ -59,6 +61,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/status", get(sync_status))
         .route("/api/sync/pull", post(sync_pull))
         .route("/api/sync/push", post(sync_push))
+        .route("/api/sync/conflict", get(get_conflict))
+        .route("/api/sync/conflict/resolve", post(resolve_conflict))
         .with_state(state)
 }
 
@@ -173,6 +177,36 @@ async fn sync_push(
     let immediate = body.map(|Json(request)| request.immediate).unwrap_or(true);
     scheduler.request_push(immediate).await;
     Json(scheduler.status())
+}
+
+async fn get_conflict(State(repository): State<SharedRepository>) -> Result<Json<Option<ConflictInfo>>, RepoError> {
+    let conflict = with_repository(repository, |repo| Ok(repo.pending_conflict())).await?;
+    Ok(Json(conflict))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveConflictRequest {
+    resolutions: Vec<ConflictResolution>,
+}
+
+async fn resolve_conflict(
+    State(repository): State<SharedRepository>,
+    State(scheduler): State<SyncScheduler>,
+    Json(body): Json<ResolveConflictRequest>,
+) -> Result<Json<SyncResult>, RepoError> {
+    let (author_name, author_email) = scheduler.author();
+    let (author_name, author_email) = (author_name.to_string(), author_email.to_string());
+
+    with_repository(repository, move |repo| {
+        repo.resolve_conflict(&body.resolutions, &author_name, &author_email)
+    })
+    .await?;
+
+    // The resolution is only a local merge commit until it reaches the remote — push it right
+    // away rather than waiting for the debounce, matching how a manual "Sync now" behaves.
+    scheduler.request_push(true).await;
+    Ok(Json(scheduler.status()))
 }
 
 #[cfg(test)]

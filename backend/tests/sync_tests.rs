@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use todowai_backend::repository::{RemoteConfig, Repository, SyncStatus};
+use todowai_backend::repository::{ConflictSide, ConflictResolution, RemoteConfig, Repository, SyncStatus};
 
 fn init_repo_with_branch(dir: &Path, bare: bool, branch: &str) -> git2::Repository {
     let mut opts = git2::RepositoryInitOptions::new();
@@ -47,13 +47,13 @@ fn pull_and_push_report_error_with_no_remote_configured() {
     let temp = tempfile::tempdir().unwrap();
     let (_remote_repo, _oid) = init_bare_remote_with_commit(temp.path());
     let local_dir = tempfile::tempdir().unwrap();
-    let repository = clone_local(temp.path(), local_dir.path());
+    let mut repository = clone_local(temp.path(), local_dir.path());
 
     let pull_result = repository.pull("Todowai Sync", "sync@example.invalid");
     assert_eq!(pull_result.status, SyncStatus::Error);
     assert_eq!(pull_result.message, "No remote configured.");
 
-    let push_result = repository.push();
+    let push_result = repository.push("Todowai Sync", "sync@example.invalid");
     assert_eq!(push_result.status, SyncStatus::Error);
     assert_eq!(push_result.message, "No remote configured.");
 }
@@ -142,6 +142,10 @@ fn pull_reports_conflict_and_leaves_local_state_clean_when_histories_diverge_inc
     assert_eq!(std::fs::read_to_string(local_dir.path().join("shared.md")).unwrap(), "v2-local");
     assert_eq!(repository.recent_history(10).unwrap()[0].oid, local_result.oid);
     assert!(repository.snapshot().unwrap().pending_changes.is_empty(), "the aborted merge shouldn't leave stray pending changes");
+    assert_eq!(
+        repository.pending_conflict().expect("expected a pending conflict").files,
+        vec!["shared.md".to_string()]
+    );
 }
 
 #[test]
@@ -157,7 +161,7 @@ fn push_updates_the_remote() {
         .commit_all("feat: add local note", "Todowai User", "todowai@example.invalid")
         .unwrap();
 
-    let result = repository.push();
+    let result = repository.push("Todowai Sync", "sync@example.invalid");
 
     assert_eq!(result.status, SyncStatus::Synced);
     let remote_repo = git2::Repository::open_bare(remote_dir.path()).unwrap();
@@ -166,14 +170,15 @@ fn push_updates_the_remote() {
 }
 
 #[test]
-fn push_reports_conflict_when_remote_has_diverged() {
+fn push_merges_automatically_when_remote_diverged_without_overlap() {
     let remote_dir = tempfile::tempdir().unwrap();
     let (remote_repo, first_oid) = init_bare_remote_with_commit(remote_dir.path());
     let local_dir = tempfile::tempdir().unwrap();
     let mut repository = clone_local(remote_dir.path(), local_dir.path());
     repository.set_remote(Some(remote_config(remote_dir.path())));
 
-    // The remote moves on without the local clone knowing.
+    // The remote moves on without the local clone knowing — but to a different file, so this
+    // shouldn't conflict with anything local does next.
     let first_commit = remote_repo.find_commit(first_oid).unwrap();
     commit_file(&remote_repo, Some(&first_commit), "shared.md", "v2-remote", "remote change");
 
@@ -183,7 +188,139 @@ fn push_reports_conflict_when_remote_has_diverged() {
         .commit_all("feat: add local note", "Todowai User", "todowai@example.invalid")
         .unwrap();
 
-    let result = repository.push();
+    let result = repository.push("Todowai Sync", "sync@example.invalid");
+
+    assert_eq!(
+        result.status,
+        SyncStatus::Synced,
+        "non-overlapping divergence should merge and push automatically with no user action, got: {result:?}"
+    );
+    assert!(repository.pending_conflict().is_none());
+    assert_eq!(std::fs::read_to_string(local_dir.path().join("shared.md")).unwrap(), "v2-remote");
+    assert_eq!(
+        std::fs::read_to_string(local_dir.path().join("todowai/local.md")).unwrap(),
+        "new content"
+    );
+    let remote_repo_reopened = git2::Repository::open_bare(remote_dir.path()).unwrap();
+    let remote_head = remote_repo_reopened.head().unwrap().peel_to_commit().unwrap();
+    assert_eq!(remote_head.id().to_string(), repository.recent_history(1).unwrap()[0].oid);
+}
+
+#[test]
+fn push_reports_conflict_when_remote_diverged_with_overlapping_edit() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let (remote_repo, first_oid) = init_bare_remote_with_commit(remote_dir.path());
+    let local_dir = tempfile::tempdir().unwrap();
+    let mut repository = clone_local(remote_dir.path(), local_dir.path());
+    repository.set_remote(Some(remote_config(remote_dir.path())));
+
+    // Remote and local both change the exact same file's only line, differently — a genuine
+    // overlapping edit that can't auto-merge, whichever direction (pull or push) discovers it.
+    let first_commit = remote_repo.find_commit(first_oid).unwrap();
+    commit_file(&remote_repo, Some(&first_commit), "shared.md", "v2-remote", "remote change");
+    repository.write_file("shared.md", "v2-local").unwrap();
+    repository
+        .commit_all("feat: local change", "Todowai User", "todowai@example.invalid")
+        .unwrap();
+
+    let result = repository.push("Todowai Sync", "sync@example.invalid");
 
     assert_eq!(result.status, SyncStatus::Conflict);
+    assert_eq!(
+        repository.pending_conflict().expect("expected a pending conflict").files,
+        vec!["shared.md".to_string()]
+    );
+    // Local work is untouched, exactly like a conflicting pull.
+    assert_eq!(std::fs::read_to_string(local_dir.path().join("shared.md")).unwrap(), "v2-local");
+}
+
+fn setup_overlapping_conflict(remote_dir: &Path, local_dir: &Path) -> Repository {
+    let (remote_repo, first_oid) = init_bare_remote_with_commit(remote_dir);
+    let mut repository = clone_local(remote_dir, local_dir);
+    repository.set_remote(Some(remote_config(remote_dir)));
+
+    let first_commit = remote_repo.find_commit(first_oid).unwrap();
+    commit_file(&remote_repo, Some(&first_commit), "shared.md", "v2-remote", "remote change");
+    repository.write_file("shared.md", "v2-local").unwrap();
+    repository
+        .commit_all("feat: local change", "Todowai User", "todowai@example.invalid")
+        .unwrap();
+
+    let result = repository.pull("Todowai Sync", "sync@example.invalid");
+    assert_eq!(result.status, SyncStatus::Conflict, "test setup expected a real conflict");
+
+    repository
+}
+
+#[test]
+fn resolve_conflict_with_mine_keeps_local_content_and_pushes() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let local_dir = tempfile::tempdir().unwrap();
+    let mut repository = setup_overlapping_conflict(remote_dir.path(), local_dir.path());
+
+    repository
+        .resolve_conflict(
+            &[ConflictResolution { path: "shared.md".to_string(), keep: ConflictSide::Mine }],
+            "Todowai Sync",
+            "sync@example.invalid",
+        )
+        .unwrap();
+
+    assert!(repository.pending_conflict().is_none());
+    assert_eq!(std::fs::read_to_string(local_dir.path().join("shared.md")).unwrap(), "v2-local");
+    assert!(repository.snapshot().unwrap().pending_changes.is_empty());
+
+    let push_result = repository.push("Todowai Sync", "sync@example.invalid");
+    assert_eq!(push_result.status, SyncStatus::Synced);
+    let remote_repo = git2::Repository::open_bare(remote_dir.path()).unwrap();
+    let remote_head_oid = remote_repo.head().unwrap().peel_to_commit().unwrap().id();
+    let remote_tree = remote_repo.find_commit(remote_head_oid).unwrap().tree().unwrap();
+    let resolved_blob = remote_repo
+        .find_blob(remote_tree.get_path(Path::new("shared.md")).unwrap().id())
+        .unwrap();
+    assert_eq!(resolved_blob.content(), b"v2-local");
+}
+
+#[test]
+fn resolve_conflict_with_theirs_keeps_remote_content() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let local_dir = tempfile::tempdir().unwrap();
+    let mut repository = setup_overlapping_conflict(remote_dir.path(), local_dir.path());
+
+    repository
+        .resolve_conflict(
+            &[ConflictResolution { path: "shared.md".to_string(), keep: ConflictSide::Theirs }],
+            "Todowai Sync",
+            "sync@example.invalid",
+        )
+        .unwrap();
+
+    assert!(repository.pending_conflict().is_none());
+    assert_eq!(std::fs::read_to_string(local_dir.path().join("shared.md")).unwrap(), "v2-remote");
+}
+
+#[test]
+fn resolve_conflict_fails_when_nothing_is_pending() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let local_dir = tempfile::tempdir().unwrap();
+    init_bare_remote_with_commit(remote_dir.path());
+    let mut repository = clone_local(remote_dir.path(), local_dir.path());
+
+    let result = repository.resolve_conflict(&[], "Todowai Sync", "sync@example.invalid");
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn resolve_conflict_rejects_a_partial_resolution() {
+    let remote_dir = tempfile::tempdir().unwrap();
+    let local_dir = tempfile::tempdir().unwrap();
+    let mut repository = setup_overlapping_conflict(remote_dir.path(), local_dir.path());
+
+    // Doesn't mention shared.md at all, the one file that's actually conflicted.
+    let result = repository.resolve_conflict(&[], "Todowai Sync", "sync@example.invalid");
+
+    assert!(result.is_err());
+    // The conflict is still pending — nothing was silently half-committed.
+    assert!(repository.pending_conflict().is_some());
 }
