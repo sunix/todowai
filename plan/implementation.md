@@ -54,10 +54,10 @@ later, via Tauri for desktop/mobile (M8).
   - [x] Settings has Remote URL/Username/Token fields wired to `PUT /api/sync/remote`; empty URL clears the remote
   - [x] Indicator/fields reflect actual backend state on page load, not just optimistic local state
 
-- **Non-blocking git 3-way merge conflict handling** (M) — https://github.com/sunix/todowai/issues/13
-  Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing. Now depends on #62 (the Rust-core sync engine) rather than the closed #12 — behavior/UX unchanged by the pivot.
-  - [ ] Non-overlapping concurrent edits merge automatically with no user action
-  - [ ] Overlapping edits produce a conflict entry the user can resolve later without being blocked from continuing other edits
+- **Non-blocking git 3-way merge conflict handling** (M) — https://github.com/sunix/todowai/issues/13 — *Merged (#79).*
+  Handle concurrent edits between devices using git's 3-way merge; when a true conflict occurs, surface it as a dismissible, non-blocking item rather than halting editing. Now depends on #62 (the Rust-core sync engine) rather than the closed #12 — behavior/UX unchanged by the pivot. #62 already delivered non-overlapping auto-merge on *pull*; this closed the remaining gap on *push* (previously fast-forward-only, so it falsely reported a conflict for any divergence at all) and added a keep-mine/keep-theirs resolution UI for genuine conflicts, which #62 deliberately left unbuilt. A full diff/merge editor is out of scope for v1.
+  - [x] Non-overlapping concurrent edits merge automatically with no user action
+  - [x] Overlapping edits produce a conflict entry the user can resolve later without being blocked from continuing other edits
 
 
 ## M2 — Notebook & Capture
