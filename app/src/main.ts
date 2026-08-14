@@ -447,6 +447,30 @@ function bindSettingsScreen(): void {
   });
 }
 
+// A path typed into "New note"/"New folder" is relative to the subfolder, not the vault root —
+// but tolerate the user typing the subfolder name themselves (e.g. "todowai/backlog/idea.md")
+// rather than silently double-prefixing it.
+function resolveNotebookPath(subfolder: string, input: string): string {
+  const trimmed = input.trim().replace(/^\/+|\/+$/g, '');
+  return trimmed === subfolder || trimmed.startsWith(`${subfolder}/`) ? trimmed : `${subfolder}/${trimmed}`;
+}
+
+function withMarkdownExtension(path: string): string {
+  const lastSegment = path.split('/').pop() ?? '';
+  return lastSegment.includes('.') ? path : `${path}.md`;
+}
+
+// Git never tracks an empty directory — a "new folder" only becomes real (durable across a
+// restart/re-clone) once it has a file in it, so this is what "New folder" actually creates.
+function starterNotePathForFolder(folderPath: string): string {
+  return `${folderPath.replace(/\/+$/, '')}/untitled.md`;
+}
+
+function ancestorFolderPaths(filePath: string): string[] {
+  const segments = filePath.split('/').slice(0, -1);
+  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
+}
+
 // Notebook shares its file-open state (selectedFilePath/selectedFileContent/files) with
 // Settings' own file editor — both are views onto the same vault, not separate data — so
 // opening/saving a note here is visible there too, and vice versa.
@@ -493,6 +517,53 @@ function bindNotebookScreen(): void {
       state.files = snapshot.files;
       state.pendingChanges = snapshot.pendingChanges;
       state.statusMessage = `Saved ${state.selectedFilePath}.`;
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#notebook-new-note-button')?.addEventListener('click', async () => {
+    const pathInput = main.querySelector<HTMLInputElement>('#notebook-new-path');
+    const raw = pathInput?.value.trim();
+    if (!raw) {
+      return;
+    }
+
+    await runRepositoryAction('Creating note…', async () => {
+      const path = withMarkdownExtension(resolveNotebookPath(state.subfolder, raw));
+      if (state.files.includes(path)) {
+        throw new Error(`A note already exists at ${path}.`);
+      }
+
+      const snapshot = await writeFile(path, '');
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      ancestorFolderPaths(path).forEach((folder) => state.expandedFolders.add(folder));
+      state.selectedFilePath = path;
+      state.selectedFileContent = '';
+      state.statusMessage = `Created ${path}.`;
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#notebook-new-folder-button')?.addEventListener('click', async () => {
+    const pathInput = main.querySelector<HTMLInputElement>('#notebook-new-path');
+    const raw = pathInput?.value.trim();
+    if (!raw) {
+      return;
+    }
+
+    await runRepositoryAction('Creating folder…', async () => {
+      const folderPath = resolveNotebookPath(state.subfolder, raw);
+      const path = starterNotePathForFolder(folderPath);
+      if (state.files.includes(path)) {
+        throw new Error(`"${folderPath}" already has an untitled.md note.`);
+      }
+
+      const snapshot = await writeFile(path, '');
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      ancestorFolderPaths(path).forEach((folder) => state.expandedFolders.add(folder));
+      state.selectedFilePath = path;
+      state.selectedFileContent = '';
+      state.statusMessage = `Created folder ${folderPath}.`;
     });
   });
 }

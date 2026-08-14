@@ -309,6 +309,31 @@ main {
   color: var(--text);
 }
 
+.notebook-create-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notebook-create-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.notebook-create-buttons .primary-button {
+  flex: 1;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.notebook-create-row .field-help {
+  margin: 0;
+  font-size: 12px;
+}
+
 .notebook-editor-content {
   flex: 1;
   width: 100%;

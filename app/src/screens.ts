@@ -87,7 +87,25 @@ export function renderNotebookScreen(state?: NotebookScreenState): string {
         : ''
     }
     <div class="notebook">
-      <div class="notebook-tree">${fileTreeHtml}</div>
+      <div class="notebook-tree">
+        <div class="notebook-create-row">
+          <input
+            class="text-input"
+            id="notebook-new-path"
+            placeholder="e.g. backlog/new-idea.md"
+            ${viewState.isBusy ? 'disabled' : ''}
+          >
+          <div class="notebook-create-buttons">
+            <button class="primary-button" id="notebook-new-note-button" ${viewState.isBusy ? 'disabled' : ''}>New note</button>
+            <button class="primary-button" id="notebook-new-folder-button" ${viewState.isBusy ? 'disabled' : ''}>New folder</button>
+          </div>
+          <p class="field-help">
+            Relative to <code>${escapeHtml(viewState.subfolder)}</code> — a path with slashes creates any folders it needs.
+            "New folder" adds an empty <code>untitled.md</code> inside it, since git can't track an empty folder on its own.
+          </p>
+        </div>
+        ${fileTreeHtml}
+      </div>
       <div class="notebook-editor">
         ${
           hasSelection
