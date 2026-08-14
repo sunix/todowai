@@ -91,6 +91,41 @@ pub struct ConfiguredRemote {
     pub url: String,
 }
 
+/// The files a real 3-way merge (see PullOutcome::Conflict) couldn't reconcile on its own —
+/// surfaced so the UI can list them and let the user resolve each one via `resolve_conflict`,
+/// rather than just repeating the same generic "could not merge" message every sync attempt.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictInfo {
+    pub files: Vec<String>,
+}
+
+/// Which side of a conflicted file to keep. Deliberately just two choices, not a hand-edited
+/// merged result — a full diff/merge editor is out of scope for v1 (#13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictSide {
+    Mine,
+    Theirs,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictResolution {
+    pub path: String,
+    pub keep: ConflictSide,
+}
+
+/// What `resolve_conflict` needs to redo the exact same merge later: the fetched commit's
+/// objects stay in the local object database once fetched (nothing prunes them mid-session), so
+/// re-running `Repository::merge` against the same oid reproduces the identical conflicted index
+/// deterministically — no need to stash trees/blobs separately just to support resolving later.
+#[derive(Debug, Clone)]
+struct PendingMerge {
+    fetch_commit_oid: git2::Oid,
+    files: Vec<String>,
+}
+
 const HISTORY_DEPTH: usize = 10;
 
 /// Wraps a single git2::Repository opened against a real filesystem path (a Docker
@@ -108,6 +143,7 @@ pub struct Repository {
     workdir: PathBuf,
     subfolder: String,
     remote: Option<RemoteConfig>,
+    pending_conflict: Option<PendingMerge>,
 }
 
 impl Repository {
@@ -122,6 +158,7 @@ impl Repository {
             workdir,
             subfolder: DEFAULT_SUBFOLDER.to_string(),
             remote: None,
+            pending_conflict: None,
         })
     }
 
@@ -151,6 +188,15 @@ impl Repository {
 
     pub fn has_remote(&self) -> bool {
         self.remote.is_some()
+    }
+
+    /// A real conflict from the most recent pull/push attempt that still needs a per-file
+    /// keep-mine/keep-theirs decision via `resolve_conflict`. `None` once resolved, or once a
+    /// later sync attempt supersedes it (e.g. a fresh, cleanly-merging pull).
+    pub fn pending_conflict(&self) -> Option<ConflictInfo> {
+        self.pending_conflict
+            .as_ref()
+            .map(|pending| ConflictInfo { files: pending.files.clone() })
     }
 
     /// Reads whatever remotes are already configured in this repo's `.git/config`. Never
@@ -435,15 +481,15 @@ impl Repository {
     /// Never blocks the caller on network failure — every outcome (including "no remote
     /// configured") is a normal SyncResult, not a propagated error, matching the offline-first
     /// NFR: a pull failure must never stop the app from being usable.
-    pub fn pull(&self, author_name: &str, author_email: &str) -> SyncResult {
-        let Some(remote) = &self.remote else {
+    pub fn pull(&mut self, author_name: &str, author_email: &str) -> SyncResult {
+        let Some(remote) = self.remote.clone() else {
             return SyncResult {
                 status: SyncStatus::Error,
                 message: "No remote configured.".to_string(),
             };
         };
 
-        match self.pull_inner(remote, author_name, author_email) {
+        match self.pull_inner(&remote, author_name, author_email) {
             Ok(PullOutcome::UpToDate) => SyncResult {
                 status: SyncStatus::Synced,
                 message: "Already up to date.".to_string(),
@@ -458,14 +504,14 @@ impl Repository {
             },
             Ok(PullOutcome::Conflict) => SyncResult {
                 status: SyncStatus::Conflict,
-                message: "Local and remote history could not be merged automatically — resolve manually for now.".to_string(),
+                message: self.conflict_message(),
             },
             Err(error) => classify_sync_error(&error),
         }
     }
 
     fn pull_inner(
-        &self,
+        &mut self,
         remote: &RemoteConfig,
         author_name: &str,
         author_email: &str,
@@ -482,6 +528,7 @@ impl Repository {
         let (analysis, _preference) = self.repo.merge_analysis(&[&fetch_commit])?;
 
         if analysis.is_up_to_date() {
+            self.pending_conflict = None;
             return Ok(PullOutcome::UpToDate);
         }
 
@@ -499,6 +546,7 @@ impl Repository {
             self.repo.set_head(&refname)?;
             self.repo
                 .checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            self.pending_conflict = None;
             return Ok(PullOutcome::FastForwarded);
         }
 
@@ -506,12 +554,15 @@ impl Repository {
         let mut index = self.repo.index()?;
 
         if index.has_conflicts() {
-            // No conflict-resolution UI exists yet (that's #13's job) — never leave the working
-            // tree full of `<<<<<<<` markers with no way to resolve them. Abort cleanly back to
-            // the pre-merge state instead; local work stays exactly as it was, just unsynced.
+            // Never leave the working tree full of `<<<<<<<` markers with no way to resolve
+            // them — abort cleanly back to the pre-merge state instead; local work stays exactly
+            // as it was, just unsynced. The conflicted paths are captured first so resolve_
+            // conflict has something to act on later (see PendingMerge).
+            let files = Self::conflicted_paths(&index)?;
             self.repo.cleanup_state()?;
             self.repo
                 .checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            self.pending_conflict = Some(PendingMerge { fetch_commit_oid: fetch_commit.id(), files });
             return Ok(PullOutcome::Conflict);
         }
 
@@ -529,27 +580,79 @@ impl Repository {
             &[&head_commit, &fetch_commit_obj],
         )?;
         self.repo.cleanup_state()?;
+        self.pending_conflict = None;
         Ok(PullOutcome::Merged(merge_oid.to_string()))
     }
 
-    pub fn push(&self) -> SyncResult {
-        let Some(remote) = &self.remote else {
+    /// Extracts the conflicted paths from a just-merged index with unresolved entries,
+    /// preferring whichever side (ours/theirs/ancestor) actually has an entry — a delete/modify
+    /// conflict can leave one side absent.
+    fn conflicted_paths(index: &git2::Index) -> Result<Vec<String>, git2::Error> {
+        let mut paths: Vec<String> = index
+            .conflicts()?
+            .filter_map(|conflict| conflict.ok())
+            .filter_map(|conflict| {
+                let entry = conflict.our.or(conflict.their).or(conflict.ancestor)?;
+                String::from_utf8(entry.path).ok()
+            })
+            .collect();
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+
+    fn conflict_message(&self) -> String {
+        match &self.pending_conflict {
+            Some(pending) if !pending.files.is_empty() => format!(
+                "Local and remote history could not be merged automatically — conflicting file{}: {}. Resolve in Settings to continue syncing.",
+                if pending.files.len() == 1 { "" } else { "s" },
+                pending.files.join(", ")
+            ),
+            _ => "Local and remote history could not be merged automatically — resolve manually for now.".to_string(),
+        }
+    }
+
+    /// On a push rejected as non-fast-forward, tries the same 3-way merge `pull` uses instead of
+    /// reporting a conflict outright — most rejected pushes are actually non-overlapping (a
+    /// different file, or a non-overlapping hunk) and should reconcile with no user action, per
+    /// #13's first acceptance criterion. Only a genuine overlapping edit still surfaces as a
+    /// conflict, exactly like a conflicting pull would.
+    pub fn push(&mut self, author_name: &str, author_email: &str) -> SyncResult {
+        let Some(remote) = self.remote.clone() else {
             return SyncResult {
                 status: SyncStatus::Error,
                 message: "No remote configured.".to_string(),
             };
         };
 
-        match self.push_inner(remote) {
-            Ok(()) => SyncResult {
-                status: SyncStatus::Synced,
-                message: "Synced — pushed successfully.".to_string(),
-            },
-            Err(PushError::Rejected(message)) => SyncResult {
-                status: SyncStatus::Conflict,
-                message: format!(
-                    "Local and remote history could not be merged automatically — resolve manually for now ({message})."
-                ),
+        match self.push_inner(&remote) {
+            Ok(()) => {
+                self.pending_conflict = None;
+                SyncResult {
+                    status: SyncStatus::Synced,
+                    message: "Synced — pushed successfully.".to_string(),
+                }
+            }
+            Err(PushError::Rejected(_)) => match self.pull_inner(&remote, author_name, author_email) {
+                Ok(PullOutcome::Conflict) => SyncResult {
+                    status: SyncStatus::Conflict,
+                    message: self.conflict_message(),
+                },
+                Ok(_) => match self.push_inner(&remote) {
+                    Ok(()) => {
+                        self.pending_conflict = None;
+                        SyncResult {
+                            status: SyncStatus::Synced,
+                            message: "Synced — merged remote changes and pushed.".to_string(),
+                        }
+                    }
+                    Err(PushError::Rejected(message)) => SyncResult {
+                        status: SyncStatus::Conflict,
+                        message: format!("Remote moved again mid-sync — try again ({message})."),
+                    },
+                    Err(PushError::Git(error)) => classify_sync_error(&error),
+                },
+                Err(error) => classify_sync_error(&error),
             },
             Err(PushError::Git(error)) => classify_sync_error(&error),
         }
@@ -593,6 +696,103 @@ impl Repository {
             return Err(PushError::Rejected(message));
         }
         Ok(())
+    }
+
+    /// Resolves a real merge conflict from the most recent pull/push attempt (see
+    /// `pending_conflict`) by picking, per conflicted file, whichever side to keep — "mine" (the
+    /// local, pre-merge content) or "theirs" (the fetched remote content). Deliberately doesn't
+    /// support hand-editing a merged result; a full diff/merge editor is out of scope for v1
+    /// (#13). Every conflicted file must be covered by `resolutions` — a partial resolution is
+    /// rejected rather than silently committing a still-broken merge.
+    ///
+    /// Redoes the exact same 3-way merge that produced the conflict: the fetched commit's
+    /// objects are still in the local object database (nothing prunes them mid-session), so
+    /// merging against the same oid again reproduces the identical conflicted index
+    /// deterministically, without needing to have stashed it earlier.
+    pub fn resolve_conflict(
+        &mut self,
+        resolutions: &[ConflictResolution],
+        author_name: &str,
+        author_email: &str,
+    ) -> Result<(), RepoError> {
+        let pending = self
+            .pending_conflict
+            .clone()
+            .ok_or_else(|| RepoError::ConflictResolutionFailed("no conflict is pending".to_string()))?;
+
+        let resolved: std::collections::HashSet<&str> = resolutions.iter().map(|r| r.path.as_str()).collect();
+        if pending.files.iter().any(|file| !resolved.contains(file.as_str())) {
+            return Err(RepoError::ConflictResolutionFailed(
+                "every conflicted file must be resolved".to_string(),
+            ));
+        }
+
+        let fetch_commit = self.repo.find_annotated_commit(pending.fetch_commit_oid)?;
+        self.repo.merge(&[&fetch_commit], None, None)?;
+        let mut index = self.repo.index()?;
+        let conflicts: Vec<git2::IndexConflict> = index.conflicts()?.filter_map(|c| c.ok()).collect();
+
+        for resolution in resolutions {
+            let Some(conflict) = conflicts.iter().find(|conflict| Self::conflict_has_path(conflict, &resolution.path)) else {
+                continue; // not actually a conflicted path — nothing to do
+            };
+
+            let chosen = match resolution.keep {
+                ConflictSide::Mine => conflict.our.as_ref(),
+                ConflictSide::Theirs => conflict.their.as_ref(),
+            };
+
+            match chosen {
+                Some(entry) => {
+                    let blob = self.repo.find_blob(entry.id)?;
+                    let target = self.workdir.join(&resolution.path);
+                    if let Some(parent) = target.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&target, blob.content())?;
+                    index.add_path(Path::new(&resolution.path))?;
+                }
+                None => {
+                    // The chosen side deleted this file.
+                    let _ = std::fs::remove_file(self.workdir.join(&resolution.path));
+                    let _ = index.remove_path(Path::new(&resolution.path));
+                }
+            }
+        }
+
+        if index.has_conflicts() {
+            self.repo.cleanup_state()?;
+            self.repo
+                .checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            return Err(RepoError::ConflictResolutionFailed(
+                "resolution left unresolved conflicts".to_string(),
+            ));
+        }
+
+        index.write()?;
+        let tree_oid = index.write_tree()?;
+        let tree = self.repo.find_tree(tree_oid)?;
+        let signature = git2::Signature::now(author_name, author_email)?;
+        let head_commit = self.repo.head()?.peel_to_commit()?;
+        let fetch_commit_obj = self.repo.find_commit(pending.fetch_commit_oid)?;
+        self.repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Merge remote changes (resolved conflict)",
+            &tree,
+            &[&head_commit, &fetch_commit_obj],
+        )?;
+        self.repo.cleanup_state()?;
+        self.pending_conflict = None;
+        Ok(())
+    }
+
+    fn conflict_has_path(conflict: &git2::IndexConflict, path: &str) -> bool {
+        let matches = |entry: &Option<git2::IndexEntry>| {
+            entry.as_ref().is_some_and(|entry| entry.path == path.as_bytes())
+        };
+        matches(&conflict.our) || matches(&conflict.their) || matches(&conflict.ancestor)
     }
 }
 

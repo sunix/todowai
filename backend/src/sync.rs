@@ -30,13 +30,13 @@ pub struct RepositoryBackend {
 
 impl SyncBackend for RepositoryBackend {
     fn pull(&self) -> SyncResult {
-        let repository = self.repository.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut repository = self.repository.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         repository.pull(&self.author_name, &self.author_email)
     }
 
     fn push(&self) -> SyncResult {
-        let repository = self.repository.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        repository.push()
+        let mut repository = self.repository.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        repository.push(&self.author_name, &self.author_email)
     }
 }
 
@@ -65,6 +65,15 @@ struct Inner<B: SyncBackend> {
     background_pull_interval: Duration,
     pending_push: AsyncMutex<Option<JoinHandle<()>>>,
     status: Mutex<SyncResult>,
+}
+
+impl SyncScheduler<RepositoryBackend> {
+    /// The identity `resolve_conflict`'s merge commit should use — the same one already used
+    /// for every other synthetic merge commit pull/push produce, not the commit form's
+    /// per-commit author fields (unrelated: that's for the user's own edits).
+    pub fn author(&self) -> (&str, &str) {
+        (&self.inner.backend.author_name, &self.inner.backend.author_email)
+    }
 }
 
 impl<B: SyncBackend> SyncScheduler<B> {

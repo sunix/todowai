@@ -369,3 +369,44 @@ main {
   color: var(--text);
   word-break: break-all;
 }
+
+.conflict-card {
+  border-color: #ff9b9b;
+}
+
+.conflict-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.conflict-file {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.conflict-file-path {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.conflict-choice-row {
+  display: flex;
+  gap: 16px;
+}
+
+.conflict-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}

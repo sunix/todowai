@@ -3,14 +3,18 @@ import { topLevelFolders } from './file-tree';
 import {
   commitAll,
   fetchConfiguredRemotes,
+  fetchConflict,
   fetchSnapshot,
   fetchSyncStatus,
   readFile,
+  resolveConflict,
   setRemote,
   syncPull,
   syncPush,
   writeFile,
   type ConfiguredRemote,
+  type ConflictInfo,
+  type ConflictSide,
   type SyncStatus,
 } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
@@ -62,6 +66,11 @@ type AppState = {
   syncStatus: SyncStatus | 'idle';
   syncMessage: string;
   isSyncing: boolean;
+  // Populated only while syncStatus is 'conflict' — see refreshSyncStatus. conflictChoices holds
+  // the user's in-progress keep-mine/keep-theirs picks, keyed by file path, before "Resolve and
+  // sync" is clicked.
+  conflict: ConflictInfo | null;
+  conflictChoices: Record<string, ConflictSide>;
 };
 
 const state: AppState = {
@@ -92,6 +101,8 @@ const state: AppState = {
   syncStatus: 'idle',
   syncMessage: 'Checking sync status…',
   isSyncing: false,
+  conflict: null,
+  conflictChoices: {},
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -127,6 +138,8 @@ function render(): void {
           remoteUsername: state.remoteUsername,
           remoteToken: state.remoteToken,
           configuredRemotes: state.configuredRemotes,
+          conflict: state.conflict,
+          conflictChoices: state.conflictChoices,
         })
       : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -145,14 +158,23 @@ function renderSyncIndicator(): void {
   // this one specific, expected message as the neutral state instead of a real error.
   const isUnconfigured = state.syncMessage === 'No remote configured.';
   const dotClass = state.syncStatus === 'idle' || isUnconfigured ? '' : ` sync-dot-${state.syncStatus}`;
+  // A conflict can't be fixed by just retrying pull/push again — send the user to the
+  // resolution card in Settings instead of a "Sync now" that would just conflict again.
+  const isConflict = state.syncStatus === 'conflict';
   syncIndicator.innerHTML = `
     <div class="sync-row">
       <span class="sync-dot${dotClass}" aria-hidden="true"></span>
       <span>${escapeHtml(state.syncMessage)}</span>
     </div>
-    <button class="primary-button sync-now-button" id="syncNowButton" ${state.isSyncing ? 'disabled' : ''}>Sync now</button>
+    <button class="primary-button sync-now-button" id="syncNowButton" ${state.isSyncing ? 'disabled' : ''}>
+      ${isConflict ? 'Resolve in Settings' : 'Sync now'}
+    </button>
   `;
   syncIndicator.querySelector<HTMLButtonElement>('#syncNowButton')?.addEventListener('click', () => {
+    if (isConflict) {
+      navigateTo('settings');
+      return;
+    }
     void handleSyncNow();
   });
 }
@@ -187,6 +209,11 @@ setInterval(() => {
 }, SYNC_POLL_INTERVAL_MS);
 
 async function refreshSyncStatus(): Promise<void> {
+  // Captured before updating state, so a full re-render of Settings (below) only happens when
+  // the conflict actually changes — not on every 15s poll tick, which would otherwise disrupt
+  // whatever the user might be typing elsewhere on that screen.
+  const previousConflictFiles = state.conflict?.files.join('\n') ?? null;
+
   try {
     const result = await fetchSyncStatus();
     state.syncStatus = result.status;
@@ -195,7 +222,20 @@ async function refreshSyncStatus(): Promise<void> {
     state.syncStatus = 'error';
     state.syncMessage = error instanceof Error ? error.message : 'Could not reach the backend.';
   }
+
+  if (state.syncStatus === 'conflict') {
+    state.conflict = await fetchConflict().catch(() => null);
+  } else {
+    state.conflict = null;
+    state.conflictChoices = {};
+  }
+
   renderSyncIndicator();
+
+  const currentConflictFiles = state.conflict?.files.join('\n') ?? null;
+  if (currentScreen() === 'settings' && currentConflictFiles !== previousConflictFiles) {
+    render();
+  }
 }
 
 // Pull then push, mirroring what the background scheduler already does on its own — this is
@@ -221,8 +261,19 @@ async function handleSyncNow(): Promise<void> {
     state.syncStatus = 'error';
     state.syncMessage = error instanceof Error ? error.message : 'Sync failed.';
   } finally {
+    if (state.syncStatus === 'conflict') {
+      state.conflict = await fetchConflict().catch(() => null);
+    } else {
+      state.conflict = null;
+      state.conflictChoices = {};
+    }
     state.isSyncing = false;
     renderSyncIndicator();
+    // An explicit, user-initiated action, unlike the background poll — safe to fully re-render
+    // Settings right away so a newly-discovered conflict's resolution card shows up immediately.
+    if (currentScreen() === 'settings') {
+      render();
+    }
   }
 }
 
@@ -250,6 +301,53 @@ function bindSettingsScreen(): void {
       state.statusMessage = trimmedUrl ? 'Remote settings saved.' : 'Remote cleared.';
     });
     await refreshSyncStatus();
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-conflict-file]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const file = input.dataset.conflictFile;
+      if (!file) {
+        return;
+      }
+      state.conflictChoices[file] = input.value as ConflictSide;
+      // Purely local UI state (the pick isn't sent until "Resolve and sync") — no repository
+      // I/O, so this bypasses runRepositoryAction and just re-renders directly.
+      render();
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#resolve-conflict-button')?.addEventListener('click', async () => {
+    const conflict = state.conflict;
+    if (!conflict) {
+      return;
+    }
+    const resolutions = conflict.files.map((path) => ({
+      path,
+      keep: state.conflictChoices[path] ?? ('mine' as ConflictSide),
+    }));
+
+    await runRepositoryAction('Resolving conflict…', async (setLabel) => {
+      const result = await resolveConflict(resolutions);
+      state.syncStatus = result.status;
+      state.syncMessage = result.message;
+      state.conflict = result.status === 'conflict' ? await fetchConflict().catch(() => null) : null;
+      state.conflictChoices = {};
+      if (result.status === 'synced') {
+        state.statusMessage = 'Conflict resolved and synced.';
+      }
+
+      // Resolving a conflict changes tracked file content on disk — refresh so the file
+      // list/editor/history don't show stale pre-resolution state.
+      setLabel('Loading updated files…');
+      const snapshot = await fetchSnapshot();
+      state.files = snapshot.files;
+      state.history = snapshot.history;
+      state.pendingChanges = snapshot.pendingChanges;
+      if (state.selectedFilePath && state.files.includes(state.selectedFilePath)) {
+        state.selectedFileContent = await readFile(state.selectedFilePath);
+      }
+    });
+    renderSyncIndicator();
   });
 
   main.querySelectorAll<HTMLButtonElement>('[data-toggle-folder]').forEach((button) => {

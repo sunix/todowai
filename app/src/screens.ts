@@ -1,5 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { ConfiguredRemote, RepositoryChange, RepositoryHistoryEntry } from './repository';
+import type { ConfiguredRemote, ConflictInfo, ConflictSide, RepositoryChange, RepositoryHistoryEntry } from './repository';
 import type { ScreenId } from './router';
 
 const TITLES: Record<ScreenId, string> = {
@@ -45,6 +45,8 @@ type SettingsScreenState = {
   remoteUsername: string;
   remoteToken: string;
   configuredRemotes: ConfiguredRemote[];
+  conflict: ConflictInfo | null;
+  conflictChoices: Record<string, ConflictSide>;
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -74,6 +76,8 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     remoteUsername: '',
     remoteToken: '',
     configuredRemotes: [],
+    conflict: null,
+    conflictChoices: {},
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -182,6 +186,8 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <p class="field-help">Leave the URL blank and save to disconnect the remote entirely.</p>
       </article>
 
+      ${viewState.conflict ? renderConflictCard(viewState.conflict, viewState.conflictChoices, viewState.isBusy) : ''}
+
       <div class="settings-grid">
         <article class="card">
           <h2 class="section-title">Repository files</h2>
@@ -227,6 +233,55 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         </article>
       </div>
     </section>
+  `;
+}
+
+// Deliberately just "keep mine" / "keep remote" per file, not a hand-edited merge — a full
+// diff/merge editor is out of scope for v1 (#13). Local work stays exactly as it was and fully
+// editable while a conflict is pending (see the backend's clean-abort-on-conflict behavior);
+// this card is the one place that pending state becomes actionable instead of just a status dot.
+function renderConflictCard(conflict: ConflictInfo, choices: Record<string, ConflictSide>, isBusy: boolean): string {
+  const fileRows = conflict.files
+    .map((file) => {
+      const choice = choices[file] ?? 'mine';
+      const radio = (side: ConflictSide, label: string) => `
+        <label class="conflict-choice">
+          <input
+            type="radio"
+            name="conflict-${escapeHtmlAttribute(file)}"
+            value="${side}"
+            data-conflict-file="${escapeHtmlAttribute(file)}"
+            ${choice === side ? 'checked' : ''}
+            ${isBusy ? 'disabled' : ''}
+          >
+          ${label}
+        </label>
+      `;
+      return `
+        <li class="conflict-file">
+          <code class="conflict-file-path">${escapeHtml(file)}</code>
+          <div class="conflict-choice-row">
+            ${radio('mine', 'Keep mine')}
+            ${radio('theirs', 'Keep remote')}
+          </div>
+        </li>
+      `;
+    })
+    .join('');
+
+  return `
+    <article class="card conflict-card">
+      <h2 class="section-title">Merge conflict</h2>
+      <p class="section-copy">
+        Local and remote history couldn't be merged automatically for the file${conflict.files.length === 1 ? '' : 's'} below.
+        Everything else already synced normally. Pick which version to keep for each one, then resolve to continue syncing —
+        you can keep editing other files in the meantime.
+      </p>
+      <ul class="conflict-file-list">${fileRows}</ul>
+      <div class="button-row">
+        <button class="primary-button" id="resolve-conflict-button" ${isBusy ? 'disabled' : ''}>Resolve and sync</button>
+      </div>
+    </article>
   `;
 }
 

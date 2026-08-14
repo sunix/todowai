@@ -8,6 +8,9 @@ pub enum RepoError {
     NotFound(String),
     InvalidPath(String),
     NothingToCommit,
+    /// A resolve-conflict request that doesn't match the actual pending state (nothing to
+    /// resolve, or it didn't cover every conflicted file) — a client mistake, not a git failure.
+    ConflictResolutionFailed(String),
     Git(git2::Error),
     Io(std::io::Error),
     /// The blocking task running the repository operation panicked (see api::with_repository).
@@ -20,6 +23,7 @@ impl std::fmt::Display for RepoError {
             RepoError::NotFound(path) => write!(f, "not found: {path}"),
             RepoError::InvalidPath(path) => write!(f, "invalid path: {path}"),
             RepoError::NothingToCommit => write!(f, "nothing to commit"),
+            RepoError::ConflictResolutionFailed(message) => write!(f, "conflict resolution failed: {message}"),
             RepoError::Git(err) => write!(f, "git error: {err}"),
             RepoError::Io(err) => write!(f, "io error: {err}"),
             RepoError::TaskFailed(message) => write!(f, "internal error: {message}"),
@@ -47,6 +51,7 @@ impl IntoResponse for RepoError {
             RepoError::NotFound(_) => StatusCode::NOT_FOUND,
             RepoError::InvalidPath(_) => StatusCode::BAD_REQUEST,
             RepoError::NothingToCommit => StatusCode::BAD_REQUEST,
+            RepoError::ConflictResolutionFailed(_) => StatusCode::BAD_REQUEST,
             RepoError::Git(_) | RepoError::Io(_) | RepoError::TaskFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(json!({ "error": self.to_string() }))).into_response()

@@ -55,6 +55,19 @@ export type ConfiguredRemote = {
   url: string;
 };
 
+// Files a real 3-way merge couldn't reconcile on its own (see backend/src/repository.rs,
+// PullOutcome::Conflict) and still need a keep-mine/keep-theirs decision via resolveConflict.
+export type ConflictInfo = {
+  files: string[];
+};
+
+export type ConflictSide = 'mine' | 'theirs';
+
+export type ConflictResolution = {
+  path: string;
+  keep: ConflictSide;
+};
+
 async function errorMessageFrom(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -155,4 +168,19 @@ export async function syncPush(immediate: boolean): Promise<SyncResult> {
 // on the Remote URL field, not as the currently-active sync remote (that's fetchSyncStatus).
 export async function fetchConfiguredRemotes(): Promise<ConfiguredRemote[]> {
   return requestJson<ConfiguredRemote[]>('/sync/remotes');
+}
+
+// `null` when the last pull/push merged cleanly (or nothing has run yet) — not every `conflict`
+// SyncStatus implies this is populated (see the backend's own conflict_message), but polling
+// this after seeing that status is how the UI gets the actual file list to act on.
+export async function fetchConflict(): Promise<ConflictInfo | null> {
+  return requestJson<ConflictInfo | null>('/sync/conflict');
+}
+
+export async function resolveConflict(resolutions: ConflictResolution[]): Promise<SyncResult> {
+  return requestJson<SyncResult>('/sync/conflict/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolutions }),
+  });
 }
