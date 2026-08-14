@@ -187,6 +187,7 @@ Required from Phase 3 onward, since `release-please` (see `plan/deployment.md`) 
 - **One logical commit per pull request** — squash intermediate commits before opening or updating a PR, so `main`'s history stays release-please-friendly.
   - Exception: once a PR branch already has commits pushed (e.g. review feedback, a previous update), don't squash/force-push over them — append new commits instead, so reviewers keep a stable history to diff against.
 - **Preview builds** — after pushing a commit to a PR, comment `/preview` on the PR to trigger the Surge preview deployment (see `.github/workflows/preview-pr.yml`). The bot replies with a preview link once the build finishes.
+- **Playwright-verified UI changes** — whenever a PR's testing drives the app with Playwright (an end-to-end flow, a visual check), attach at least one screenshot of the result directly in the PR description, not just a text description of what was tested. The goal is that a visual review of a UI change never *requires* pulling the branch and clicking through it manually to see whether it worked.
 - **Post-merge recap** — once a PR is merged, add a recap comment on the GitHub issue it closes, summarising what shipped and including screenshots when the change is visual (UI, mockup, etc.).
 
 ---
