@@ -50,6 +50,11 @@ export type RemoteConfig = {
   token: string;
 };
 
+export type ConfiguredRemote = {
+  name: string;
+  url: string;
+};
+
 async function errorMessageFrom(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -144,4 +149,10 @@ export async function syncPush(immediate: boolean): Promise<SyncResult> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ immediate }),
   });
+}
+
+// Remotes already configured in the vault's .git/config (e.g. origin) — surfaced as suggestions
+// on the Remote URL field, not as the currently-active sync remote (that's fetchSyncStatus).
+export async function fetchConfiguredRemotes(): Promise<ConfiguredRemote[]> {
+  return requestJson<ConfiguredRemote[]>('/sync/remotes');
 }

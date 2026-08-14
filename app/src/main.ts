@@ -2,6 +2,7 @@ import './style.css';
 import { topLevelFolders } from './file-tree';
 import {
   commitAll,
+  fetchConfiguredRemotes,
   fetchSnapshot,
   fetchSyncStatus,
   readFile,
@@ -9,6 +10,7 @@ import {
   syncPull,
   syncPush,
   writeFile,
+  type ConfiguredRemote,
   type SyncStatus,
 } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
@@ -54,6 +56,7 @@ type AppState = {
   remoteUrl: string;
   remoteUsername: string;
   remoteToken: string;
+  configuredRemotes: ConfiguredRemote[];
   // "idle" only before the very first status fetch resolves. Runs independently of isBusy — a
   // background sync tick must never disable foreground actions like saving or committing.
   syncStatus: SyncStatus | 'idle';
@@ -85,6 +88,7 @@ const state: AppState = {
   remoteUrl: '',
   remoteUsername: '',
   remoteToken: '',
+  configuredRemotes: [],
   syncStatus: 'idle',
   syncMessage: 'Checking sync status…',
   isSyncing: false,
@@ -122,6 +126,7 @@ function render(): void {
           remoteUrl: state.remoteUrl,
           remoteUsername: state.remoteUsername,
           remoteToken: state.remoteToken,
+          configuredRemotes: state.configuredRemotes,
         })
       : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -160,6 +165,18 @@ renderSyncIndicator();
 // at startup) — so this loads automatically once on startup, rather than waiting for a picker
 // button click like the superseded browser-only flow did.
 void loadSnapshot('Connecting to backend…');
+
+// Configured remotes reflect static .git/config content, not something this app's own actions
+// change, so a single fetch on startup is enough — no need to re-poll like sync status does.
+void fetchConfiguredRemotes()
+  .then((remotes) => {
+    state.configuredRemotes = remotes;
+    render();
+  })
+  .catch(() => {
+    // No remotes configured, or the backend couldn't read them — the Remote URL field just
+    // won't offer suggestions, which is a fine, quiet fallback.
+  });
 
 // The sync indicator is global (every screen, per the mockup's sidebar-footer placement) and
 // runs independently of any screen's own load/busy state — polled here rather than tied to

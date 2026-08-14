@@ -1,5 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { RepositoryChange, RepositoryHistoryEntry } from './repository';
+import type { ConfiguredRemote, RepositoryChange, RepositoryHistoryEntry } from './repository';
 import type { ScreenId } from './router';
 
 const TITLES: Record<ScreenId, string> = {
@@ -44,6 +44,7 @@ type SettingsScreenState = {
   remoteUrl: string;
   remoteUsername: string;
   remoteToken: string;
+  configuredRemotes: ConfiguredRemote[];
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -72,6 +73,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     remoteUrl: '',
     remoteUsername: '',
     remoteToken: '',
+    configuredRemotes: [],
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -161,7 +163,15 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
           status in the sidebar rather than resaving, or fill them in to override.
         </p>
         <label class="field-label" for="remote-url">Remote URL</label>
-        <input class="text-input" id="remote-url" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <input class="text-input" id="remote-url" list="configured-remotes" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <datalist id="configured-remotes">${configuredRemoteOptions(viewState.configuredRemotes)}</datalist>
+        ${
+          viewState.configuredRemotes.length > 0
+            ? `<p class="field-help">Suggestions from this repository's existing git remotes (${viewState.configuredRemotes
+                .map((remote) => escapeHtml(remote.name))
+                .join(', ')}).</p>`
+            : ''
+        }
         <label class="field-label" for="remote-username">Username</label>
         <input class="text-input" id="remote-username" value="${escapeHtmlAttribute(viewState.remoteUsername)}" placeholder="git">
         <label class="field-label" for="remote-token">Personal access token</label>
@@ -218,6 +228,15 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
       </div>
     </section>
   `;
+}
+
+function configuredRemoteOptions(remotes: ConfiguredRemote[]): string {
+  return remotes
+    .map(
+      (remote) =>
+        `<option value="${escapeHtmlAttribute(remote.url)}" label="${escapeHtmlAttribute(remote.name)}"></option>`
+    )
+    .join('');
 }
 
 function renderFileTreeNodes(

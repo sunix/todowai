@@ -128,6 +128,35 @@ fn list_files_excludes_git_internals() {
 }
 
 #[test]
+fn list_configured_remotes_is_empty_with_no_remotes() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    let remotes = repository.list_configured_remotes().unwrap();
+
+    assert!(remotes.is_empty());
+}
+
+#[test]
+fn list_configured_remotes_reads_existing_git_config_remotes() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let git_repo = git2::Repository::open(temp.path()).unwrap();
+    git_repo.remote("origin", "https://example.invalid/notes.git").unwrap();
+    git_repo.remote("backup", "https://backup.invalid/notes.git").unwrap();
+    let repository = Repository::open(temp.path()).unwrap();
+
+    let remotes = repository.list_configured_remotes().unwrap();
+
+    assert_eq!(remotes.len(), 2);
+    let origin = remotes.iter().find(|r| r.name == "origin").unwrap();
+    assert_eq!(origin.url, "https://example.invalid/notes.git");
+    let backup = remotes.iter().find(|r| r.name == "backup").unwrap();
+    assert_eq!(backup.url, "https://backup.invalid/notes.git");
+}
+
+#[test]
 fn obsidian_and_git_paths_are_rejected_for_read_and_write() {
     let temp = tempfile::tempdir().unwrap();
     init_seeded_repo(temp.path());

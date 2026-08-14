@@ -43,6 +43,7 @@ Set via environment variables:
 | `PUT` | `/api/repository/file` | Write a file (`{ path, content }`), returns the updated snapshot |
 | `POST` | `/api/repository/commit` | Stage and commit every pending change (`{ message, authorName, authorEmail }`); schedules a debounced push |
 | `PUT` | `/api/sync/remote` | Set the remote config (`{ url, username, token }`), or `null` to clear it — overrides the `TODOWAI_REMOTE_*` env vars without a restart, in-memory only |
+| `GET` | `/api/sync/remotes` | Remotes already configured in `.git/config` (`[{ name, url }]`, e.g. `origin`) — read-only, for the UI to suggest instead of requiring the URL to be retyped |
 | `GET` | `/api/sync/status` | Current sync status (`synced` / `offline` / `conflict` / `error`) and a message |
 | `POST` | `/api/sync/pull` | Pull immediately (in addition to on startup and the background interval) |
 | `POST` | `/api/sync/push` | Push (`{ immediate }`, default `true`) — `immediate: false` uses the same debounce as a commit |

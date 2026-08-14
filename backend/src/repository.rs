@@ -80,6 +80,17 @@ pub struct SyncResult {
     pub message: String,
 }
 
+/// A remote already configured in `.git/config` (the same data `git remote -v` shows) — not
+/// necessarily the one currently set via set_remote/RemoteConfig. Surfaced so the UI can offer
+/// existing remotes (e.g. `origin`) as suggestions instead of requiring the URL to be retyped
+/// from scratch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfiguredRemote {
+    pub name: String,
+    pub url: String,
+}
+
 const HISTORY_DEPTH: usize = 10;
 
 /// Wraps a single git2::Repository opened against a real filesystem path (a Docker
@@ -140,6 +151,26 @@ impl Repository {
 
     pub fn has_remote(&self) -> bool {
         self.remote.is_some()
+    }
+
+    /// Reads whatever remotes are already configured in this repo's `.git/config`. Never
+    /// throws: an unreadable/unusual remote entry is just skipped, not a broken repository.
+    pub fn list_configured_remotes(&self) -> Result<Vec<ConfiguredRemote>, RepoError> {
+        let names = self.repo.remotes()?;
+        let mut remotes: Vec<ConfiguredRemote> = names
+            .iter()
+            .flatten()
+            .filter_map(|name| {
+                let remote = self.repo.find_remote(name).ok()?;
+                let url = remote.url()?;
+                Some(ConfiguredRemote {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                })
+            })
+            .collect();
+        remotes.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(remotes)
     }
 
     /// `None` (or an empty/whitespace-only URL) clears the configured remote entirely.
