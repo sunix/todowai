@@ -16,7 +16,7 @@
 | [#60](https://github.com/sunix/todowai/issues/60) | Backend: configurable repo subfolder + vault access rules | Claude | [#72](https://github.com/sunix/todowai/pull/72) | Merged |
 | [#61](https://github.com/sunix/todowai/issues/61) | Web UI: integrate with the backend API | Claude | [#75](https://github.com/sunix/todowai/pull/75) | Merged |
 | [#62](https://github.com/sunix/todowai/issues/62) | Rust core: git pull/push sync engine (offline-first) | Claude | [#76](https://github.com/sunix/todowai/pull/76) | Merged |
-| [#77](https://github.com/sunix/todowai/issues/77) | Web UI: remote sync configuration + status indicator | Claude | [#78](https://github.com/sunix/todowai/pull/78) | In Review |
+| [#77](https://github.com/sunix/todowai/issues/77) | Web UI: remote sync configuration + status indicator | Claude | [#78](https://github.com/sunix/todowai/pull/78) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
