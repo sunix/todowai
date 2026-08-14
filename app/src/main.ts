@@ -18,7 +18,7 @@ import {
   type SyncStatus,
 } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
-import { escapeHtml, renderScreen, renderSettingsScreen } from './screens';
+import { escapeHtml, renderNotebookScreen, renderScreen, renderSettingsScreen } from './screens';
 
 // How often to poll the backend for sync status, purely to keep the sidebar indicator live —
 // unrelated to the backend's own pull interval, which runs independently regardless of whether
@@ -141,13 +141,27 @@ function render(): void {
           conflict: state.conflict,
           conflictChoices: state.conflictChoices,
         })
-      : renderScreen(screen);
+      : screen === 'notebook'
+        ? renderNotebookScreen({
+            subfolder: state.subfolder,
+            files: state.files,
+            selectedFilePath: state.selectedFilePath,
+            selectedFileContent: state.selectedFileContent,
+            expandedFolders: state.expandedFolders,
+            isBusy: state.isBusy,
+            busyLabel: state.busyLabel,
+            statusMessage: state.statusMessage,
+            errorMessage: state.errorMessage,
+          })
+        : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
 
   if (screen === 'settings') {
     bindSettingsScreen();
+  } else if (screen === 'notebook') {
+    bindNotebookScreen();
   }
 }
 
@@ -429,6 +443,56 @@ function bindSettingsScreen(): void {
         state.selectedFilePath = state.files[0] ?? '';
         state.selectedFileContent = state.selectedFilePath ? await readFile(state.selectedFilePath) : '';
       }
+    });
+  });
+}
+
+// Notebook shares its file-open state (selectedFilePath/selectedFileContent/files) with
+// Settings' own file editor — both are views onto the same vault, not separate data — so
+// opening/saving a note here is visible there too, and vice versa.
+function bindNotebookScreen(): void {
+  main.querySelectorAll<HTMLButtonElement>('[data-toggle-folder]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const folderPath = button.dataset.toggleFolder;
+      if (!folderPath) {
+        return;
+      }
+
+      if (state.expandedFolders.has(folderPath)) {
+        state.expandedFolders.delete(folderPath);
+      } else {
+        state.expandedFolders.add(folderPath);
+      }
+      render();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-file-path]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const filePath = button.dataset.filePath;
+      if (!filePath) {
+        return;
+      }
+
+      await runRepositoryAction('Loading file…', async () => {
+        state.selectedFilePath = filePath;
+        state.selectedFileContent = await readFile(filePath);
+      });
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#notebook-save-button')?.addEventListener('click', async () => {
+    const contentInput = main.querySelector<HTMLTextAreaElement>('#notebook-file-content');
+    if (!contentInput || !state.selectedFilePath) {
+      return;
+    }
+
+    await runRepositoryAction('Saving…', async () => {
+      const snapshot = await writeFile(state.selectedFilePath, contentInput.value);
+      state.selectedFileContent = contentInput.value;
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.statusMessage = `Saved ${state.selectedFilePath}.`;
     });
   });
 }
