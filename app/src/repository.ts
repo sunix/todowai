@@ -37,6 +37,24 @@ export type RepositoryCommitResult = {
   pendingChanges: RepositoryChange[];
 };
 
+export type SyncStatus = 'synced' | 'offline' | 'conflict' | 'error';
+
+export type SyncResult = {
+  status: SyncStatus;
+  message: string;
+};
+
+export type RemoteConfig = {
+  url: string;
+  username: string;
+  token: string;
+};
+
+export type ConfiguredRemote = {
+  name: string;
+  url: string;
+};
+
 async function errorMessageFrom(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -102,4 +120,39 @@ export async function commitAll(
       authorEmail: trimmedAuthorEmail,
     }),
   });
+}
+
+export async function fetchSyncStatus(): Promise<SyncResult> {
+  return requestJson<SyncResult>('/sync/status');
+}
+
+// `null` clears the configured remote (matches the backend's PUT /api/sync/remote semantics —
+// an empty URL is treated the same way, but sending null is unambiguous over the wire).
+export async function setRemote(remote: RemoteConfig | null): Promise<void> {
+  const response = await fetch(`${API_BASE}/sync/remote`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(remote),
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessageFrom(response));
+  }
+}
+
+export async function syncPull(): Promise<SyncResult> {
+  return requestJson<SyncResult>('/sync/pull', { method: 'POST' });
+}
+
+export async function syncPush(immediate: boolean): Promise<SyncResult> {
+  return requestJson<SyncResult>('/sync/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ immediate }),
+  });
+}
+
+// Remotes already configured in the vault's .git/config (e.g. origin) — surfaced as suggestions
+// on the Remote URL field, not as the currently-active sync remote (that's fetchSyncStatus).
+export async function fetchConfiguredRemotes(): Promise<ConfiguredRemote[]> {
+  return requestJson<ConfiguredRemote[]>('/sync/remotes');
 }

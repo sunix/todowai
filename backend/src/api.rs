@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::error::RepoError;
-use crate::repository::{CommitResult, RemoteConfig, Repository, Snapshot, SyncResult};
+use crate::repository::{CommitResult, ConfiguredRemote, RemoteConfig, Repository, Snapshot, SyncResult};
 use crate::sync::SyncScheduler;
 
 /// A plain std::sync::Mutex, not tokio's — every Repository operation (libgit2, std::fs) is
@@ -55,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repository/file", get(read_file).put(write_file))
         .route("/api/repository/commit", post(commit_all))
         .route("/api/sync/remote", put(set_remote))
+        .route("/api/sync/remotes", get(list_configured_remotes))
         .route("/api/sync/status", get(sync_status))
         .route("/api/sync/pull", post(sync_pull))
         .route("/api/sync/push", post(sync_push))
@@ -136,6 +137,13 @@ async fn set_remote(
         Ok(())
     })
     .await
+}
+
+async fn list_configured_remotes(
+    State(repository): State<SharedRepository>,
+) -> Result<Json<Vec<ConfiguredRemote>>, RepoError> {
+    let remotes = with_repository(repository, |repo| repo.list_configured_remotes()).await?;
+    Ok(Json(remotes))
 }
 
 async fn sync_status(State(scheduler): State<SyncScheduler>) -> Json<SyncResult> {

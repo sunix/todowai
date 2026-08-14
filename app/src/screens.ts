@@ -1,5 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { RepositoryChange, RepositoryHistoryEntry } from './repository';
+import type { ConfiguredRemote, RepositoryChange, RepositoryHistoryEntry } from './repository';
 import type { ScreenId } from './router';
 
 const TITLES: Record<ScreenId, string> = {
@@ -41,6 +41,10 @@ type SettingsScreenState = {
   commitAuthorName: string;
   commitAuthorEmail: string;
   commitMessage: string;
+  remoteUrl: string;
+  remoteUsername: string;
+  remoteToken: string;
+  configuredRemotes: ConfiguredRemote[];
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -66,6 +70,10 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     commitAuthorName: 'Todowai User',
     commitAuthorEmail: 'todowai@example.invalid',
     commitMessage: 'feat: update Todowai note',
+    remoteUrl: '',
+    remoteUsername: '',
+    remoteToken: '',
+    configuredRemotes: [],
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -145,6 +153,35 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         }
       </article>
 
+      <article class="card">
+        <h2 class="section-title">Remote sync</h2>
+        <p class="section-copy">
+          Optional: connect a git remote to sync this vault. Credentials are kept in memory on
+          the backend only, never written to disk. If a remote was already configured via
+          environment variables, these fields will look empty here — that's expected, the backend
+          never sends a saved token back to the browser. Leave them blank and just watch the sync
+          status in the sidebar rather than resaving, or fill them in to override.
+        </p>
+        <label class="field-label" for="remote-url">Remote URL</label>
+        <input class="text-input" id="remote-url" list="configured-remotes" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
+        <datalist id="configured-remotes">${configuredRemoteOptions(viewState.configuredRemotes)}</datalist>
+        ${
+          viewState.configuredRemotes.length > 0
+            ? `<p class="field-help">Suggestions from this repository's existing git remotes (${viewState.configuredRemotes
+                .map((remote) => escapeHtml(remote.name))
+                .join(', ')}).</p>`
+            : ''
+        }
+        <label class="field-label" for="remote-username">Username</label>
+        <input class="text-input" id="remote-username" value="${escapeHtmlAttribute(viewState.remoteUsername)}" placeholder="git">
+        <label class="field-label" for="remote-token">Personal access token</label>
+        <input class="text-input" type="password" id="remote-token" value="${escapeHtmlAttribute(viewState.remoteToken)}" placeholder="•••••••••••">
+        <div class="button-row">
+          <button class="primary-button" id="save-remote-button" ${viewState.isBusy ? 'disabled' : ''}>Save remote settings</button>
+        </div>
+        <p class="field-help">Leave the URL blank and save to disconnect the remote entirely.</p>
+      </article>
+
       <div class="settings-grid">
         <article class="card">
           <h2 class="section-title">Repository files</h2>
@@ -193,6 +230,15 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
   `;
 }
 
+function configuredRemoteOptions(remotes: ConfiguredRemote[]): string {
+  return remotes
+    .map(
+      (remote) =>
+        `<option value="${escapeHtmlAttribute(remote.url)}" label="${escapeHtmlAttribute(remote.name)}"></option>`
+    )
+    .join('');
+}
+
 function renderFileTreeNodes(
   nodes: FileTreeNode[],
   selectedFilePath: string,
@@ -234,7 +280,7 @@ function renderFileTreeNodes(
     .join('');
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
