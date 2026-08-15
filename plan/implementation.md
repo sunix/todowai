@@ -74,11 +74,11 @@ Core note-taking surface and the capture-to-filing flow.
   - [x] A typed note is saved and appears at the top of Recently Captured immediately
   - [x] Works with touch and keyboard input
 
-- **Capture filing flow — manual path** (M) — https://github.com/sunix/todowai/issues/16
-  From a captured note, let the user manually choose a destination type (todo / meeting / status / project note) and edit the resulting draft before it is saved into the Notebook.
-  - [ ] User can pick a type and edit title/content
-  - [ ] Nothing is written to the Notebook until the user explicitly saves
-  - [ ] Saved item appears in the correct Notebook location for its type
+- **Capture filing flow — manual path** (M) — https://github.com/sunix/todowai/issues/16 — *Merged (#82).*
+  From a captured note, let the user manually choose a destination type (todo / meeting / status / project note) and edit the resulting draft before it is saved into the Notebook. Every manually filed note lands in `<subfolder>/backlog` regardless of type — specs.md and issues #18/#28 confirm meetings/project notes are plain notes discovered by frontmatter, not their own folders, so type only shapes the frontmatter written, not the destination folder.
+  - [x] User can pick a type and edit title/content
+  - [x] Nothing is written to the Notebook until the user explicitly saves
+  - [x] Saved item appears in the correct Notebook location for its type
 
 - **Capture filing flow — AI-proposed path** (M) — https://github.com/sunix/todowai/issues/17
   From a captured note, let the AI propose a classification (type, title, content) as a fully editable draft, per the confirm-first pattern used elsewhere in the app.
