@@ -69,10 +69,10 @@ Core note-taking surface and the capture-to-filing flow.
   - [x] Tree lists real files from the configured subfolder
   - [x] Selecting a file loads and allows editing its raw markdown, including frontmatter
 
-- **Capture view: quick-add note UI** (S) — https://github.com/sunix/todowai/issues/15
-  Build the Capture screen's quick-add form and the Recently Captured list, consistent across mobile, browser, and desktop.
-  - [ ] A typed note is saved and appears at the top of Recently Captured immediately
-  - [ ] Works with touch and keyboard input
+- **Capture view: quick-add note UI** (S) — https://github.com/sunix/todowai/issues/15 — *Merged (#81).*
+  Build the Capture screen's quick-add form and the Recently Captured list, consistent across mobile, browser, and desktop. A capture is deliberately not written to the vault — per specification/specs.md it stays an editable draft until explicitly filed into the Notebook (#16/#17) — so it lives in `localStorage` rather than going through the backend, surviving a reload without needing any new API.
+  - [x] A typed note is saved and appears at the top of Recently Captured immediately
+  - [x] Works with touch and keyboard input
 
 - **Capture filing flow — manual path** (M) — https://github.com/sunix/todowai/issues/16
   From a captured note, let the user manually choose a destination type (todo / meeting / status / project note) and edit the resulting draft before it is saved into the Notebook.
