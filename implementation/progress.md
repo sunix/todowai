@@ -19,6 +19,7 @@
 | [#77](https://github.com/sunix/todowai/issues/77) | Web UI: remote sync configuration + status indicator | Claude | [#78](https://github.com/sunix/todowai/pull/78) | Merged |
 | [#13](https://github.com/sunix/todowai/issues/13) | Non-blocking git 3-way merge conflict handling | Claude | [#79](https://github.com/sunix/todowai/pull/79) | Merged |
 | [#14](https://github.com/sunix/todowai/issues/14) | Notebook view: file tree + markdown viewer/editor | Claude | [#80](https://github.com/sunix/todowai/pull/80) | Merged |
+| [#15](https://github.com/sunix/todowai/issues/15) | Capture view: quick-add note UI | Claude | [#81](https://github.com/sunix/todowai/pull/81) | In Review |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

@@ -18,7 +18,39 @@ import {
   type SyncStatus,
 } from './repository';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
-import { escapeHtml, renderNotebookScreen, renderScreen, renderSettingsScreen } from './screens';
+import {
+  escapeHtml,
+  renderCaptureScreen,
+  renderNotebookScreen,
+  renderScreen,
+  renderSettingsScreen,
+  type CapturedNote,
+} from './screens';
+
+// Captures are a draft concept, not vault content — see CapturedNote's doc comment in
+// screens.ts — so they live in the browser only, not the backend. localStorage (rather than
+// plain in-memory state) means a quick capture survives an accidental reload instead of just
+// vanishing, which would defeat the point of a "quick capture" tool.
+const CAPTURES_STORAGE_KEY = 'todowai:captures';
+
+function loadCaptures(): CapturedNote[] {
+  try {
+    const raw = localStorage.getItem(CAPTURES_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as CapturedNote[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCaptures(captures: CapturedNote[]): void {
+  try {
+    localStorage.setItem(CAPTURES_STORAGE_KEY, JSON.stringify(captures));
+  } catch {
+    // Storage full or unavailable (e.g. private browsing) — captures still work for this
+    // session, just won't survive a reload. Not worth surfacing as an error.
+  }
+}
 
 // How often to poll the backend for sync status, purely to keep the sidebar indicator live —
 // unrelated to the backend's own pull interval, which runs independently regardless of whether
@@ -71,6 +103,7 @@ type AppState = {
   // sync" is clicked.
   conflict: ConflictInfo | null;
   conflictChoices: Record<string, ConflictSide>;
+  captures: CapturedNote[];
 };
 
 const state: AppState = {
@@ -103,6 +136,7 @@ const state: AppState = {
   isSyncing: false,
   conflict: null,
   conflictChoices: {},
+  captures: loadCaptures(),
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -153,7 +187,9 @@ function render(): void {
             statusMessage: state.statusMessage,
             errorMessage: state.errorMessage,
           })
-        : renderScreen(screen);
+        : screen === 'capture'
+          ? renderCaptureScreen({ captures: state.captures })
+          : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -162,6 +198,8 @@ function render(): void {
     bindSettingsScreen();
   } else if (screen === 'notebook') {
     bindNotebookScreen();
+  } else if (screen === 'capture') {
+    bindCaptureScreen();
   }
 }
 
@@ -565,6 +603,30 @@ function bindNotebookScreen(): void {
       state.selectedFileContent = '';
       state.statusMessage = `Created folder ${folderPath}.`;
     });
+  });
+}
+
+function bindCaptureScreen(): void {
+  main.querySelector<HTMLButtonElement>('#capture-save-button')?.addEventListener('click', () => {
+    const input = main.querySelector<HTMLTextAreaElement>('#capture-input');
+    const text = input?.value.trim();
+    if (!text) {
+      return;
+    }
+
+    // Newest first, matching "appears at the top of Recently Captured immediately" (#15's AC) —
+    // no repository I/O at all, so this is a synchronous state update + re-render, not a
+    // runRepositoryAction call.
+    state.captures = [{ id: crypto.randomUUID(), text, capturedAt: new Date().toISOString() }, ...state.captures];
+    saveCaptures(state.captures);
+    render();
+  });
+
+  main.querySelector<HTMLButtonElement>('#capture-clear-button')?.addEventListener('click', () => {
+    const input = main.querySelector<HTMLTextAreaElement>('#capture-input');
+    if (input) {
+      input.value = '';
+    }
   });
 }
 
