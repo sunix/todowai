@@ -21,6 +21,56 @@ export function renderScreen(screen: ScreenId): string {
   `;
 }
 
+// A captured note isn't written to the vault at all — per specification/specs.md, it stays an
+// editable draft (kept only in the browser, see main.ts's localStorage-backed persistence) until
+// the user explicitly files it into the Notebook, which is #16/#17's separate, not-yet-built
+// scope. #15 is just the capture + list side of that.
+export type CapturedNote = {
+  id: string;
+  text: string;
+  capturedAt: string;
+};
+
+type CaptureScreenState = {
+  captures: CapturedNote[];
+};
+
+export function renderCaptureScreen(state?: CaptureScreenState): string {
+  const viewState = state ?? { captures: [] };
+
+  const listHtml =
+    viewState.captures.length > 0
+      ? viewState.captures
+          .map(
+            (capture) => `
+              <li class="capture-entry">
+                <p class="capture-text">${escapeHtml(capture.text)}</p>
+                <span class="capture-meta">${escapeHtml(new Date(capture.capturedAt).toLocaleString())}</span>
+              </li>
+            `
+          )
+          .join('')
+      : '<li class="empty-state">Nothing captured yet.</li>';
+
+  return `
+    <h1 class="title">${TITLES.capture}</h1>
+    <p class="placeholder">Jot something down now — file it into the Notebook later.</p>
+    <div class="card capture-card">
+      <textarea
+        class="text-area capture-input"
+        id="capture-input"
+        placeholder="Type a thought, task, or observation…"
+      ></textarea>
+      <div class="button-row">
+        <button class="primary-button" id="capture-save-button">Save note</button>
+        <button class="secondary-button" id="capture-clear-button">Clear</button>
+      </div>
+    </div>
+    <h2 class="section-title capture-list-title">Recently captured</h2>
+    <ul class="capture-list">${listHtml}</ul>
+  `;
+}
+
 type NotebookScreenState = {
   subfolder: string;
   files: string[];

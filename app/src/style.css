@@ -223,6 +223,60 @@ main {
   cursor: not-allowed;
 }
 
+.secondary-button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 10px 14px;
+}
+
+.secondary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.capture-card .capture-input {
+  min-height: 120px;
+}
+
+.capture-list-title {
+  margin: 24px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.capture-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.capture-entry {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.capture-text {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.capture-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .file-list {
   max-height: 280px;
   overflow: auto;
