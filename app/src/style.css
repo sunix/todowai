@@ -277,6 +277,22 @@ main {
   font-size: 12px;
 }
 
+.capture-entry-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.capture-entry-footer .secondary-button {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.draft-card {
+  margin-top: 16px;
+}
+
 .file-list {
   max-height: 280px;
   overflow: auto;
