@@ -6,6 +6,7 @@ use std::time::Duration;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+use todowai_backend::ai::{AiConfig, AiProvider};
 use todowai_backend::api::{self, AppState};
 use todowai_backend::repository::{RemoteConfig, Repository};
 use todowai_backend::sync::{RepositoryBackend, SyncScheduler};
@@ -51,6 +52,19 @@ async fn main() {
 
     let shared_repository: api::SharedRepository = Arc::new(Mutex::new(repository));
 
+    // In-memory only, same rationale as the remote credentials above. TODOWAI_AI_PROVIDER unset
+    // (or unrecognized) means AI features are simply disabled until configured via Settings.
+    let ai_config = std::env::var("TODOWAI_AI_PROVIDER")
+        .ok()
+        .and_then(|value| AiProvider::parse_env_value(&value))
+        .map(|provider| AiConfig {
+            provider,
+            api_key: std::env::var("TODOWAI_AI_API_KEY").unwrap_or_default(),
+            model: std::env::var("TODOWAI_AI_MODEL").ok().filter(|value| !value.trim().is_empty()),
+            base_url: std::env::var("TODOWAI_AI_BASE_URL").ok().filter(|value| !value.trim().is_empty()),
+        });
+    let shared_ai_config: api::SharedAiConfig = Arc::new(Mutex::new(ai_config));
+
     let push_debounce_ms: u64 = std::env::var("TODOWAI_PUSH_DEBOUNCE_MS")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -79,6 +93,7 @@ async fn main() {
     let state = AppState {
         repository: shared_repository,
         scheduler,
+        ai_config: shared_ai_config,
     };
 
     // Hash-based client-side routing (e.g. `#/settings`) means the browser never requests a

@@ -30,6 +30,10 @@ Set via environment variables:
 | `TODOWAI_SYNC_AUTHOR_NAME` / `TODOWAI_SYNC_AUTHOR_EMAIL` | `Todowai Sync` / `todowai-sync@example.invalid` | Identity used only for a synthetic merge commit a non-fast-forward pull can produce — unrelated to the commit form's per-commit author fields |
 | `TODOWAI_PUSH_DEBOUNCE_MS` | `4000` | How long a push waits after a commit, coalescing several commits made in quick succession into one push |
 | `TODOWAI_BACKGROUND_PULL_INTERVAL_MS` | `300000` (5 min) | How often to pull in the background, in addition to once on startup |
+| `TODOWAI_AI_PROVIDER` | _(none)_ | Optional AI provider for #17's capture-filing assist: `anthropic`, `openai`, `gemini`, `mistral`, `groq`, or `ollama`. Empty/unrecognized means AI features are simply unavailable until configured via Settings. |
+| `TODOWAI_AI_API_KEY` | _(empty)_ | Credential for the provider above. Not needed for `ollama` (a local, unauthenticated server). |
+| `TODOWAI_AI_MODEL` | _(none)_ | Model name to request. Optional for `anthropic` (defaults to `claude-opus-5`); required for every other provider — there's no safe default model ID to guess for those. |
+| `TODOWAI_AI_BASE_URL` | _(provider default)_ | Overrides the provider's default endpoint — mainly for `ollama` (a different host/port) or a self-hosted OpenAI-compatible server. |
 
 `.git/` and `.obsidian/` are always off-limits — rejected on any read/write, and never listed or staged — regardless of subfolder configuration.
 
@@ -49,6 +53,9 @@ Set via environment variables:
 | `POST` | `/api/sync/push` | Push (`{ immediate }`, default `true`) — `immediate: false` uses the same debounce as a commit |
 | `GET` | `/api/sync/conflict` | The real conflict (if any) still pending resolution — `{ files: [...] }`, or `null` when clean |
 | `POST` | `/api/sync/conflict/resolve` | Resolve a pending conflict (`{ resolutions: [{ path, keep: "mine" \| "theirs" }] }`, one entry per conflicted file), then pushes the result |
+| `GET` | `/api/ai/config` | The configured AI provider, if any — `{ provider, model, baseUrl, configured }`. Never includes the API key. |
+| `PUT` | `/api/ai/config` | Set the AI provider config (`{ provider, apiKey, model, baseUrl }`), or `null` to clear it — overrides the `TODOWAI_AI_*` env vars without a restart, in-memory only |
+| `POST` | `/api/ai/classify` | Propose a type/title/content classification for a captured note (`{ text }`) via the configured provider — `400` if none is configured |
 
 Everything else falls back to serving the web UI's static assets (hash-based client routing means the server never needs to handle deep paths itself).
 

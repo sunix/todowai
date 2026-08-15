@@ -184,3 +184,55 @@ export async function resolveConflict(resolutions: ConflictResolution[]): Promis
     body: JSON.stringify({ resolutions }),
   });
 }
+
+export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'mistral' | 'groq' | 'ollama';
+
+export type AiConfigView = {
+  provider: AiProvider | null;
+  model: string | null;
+  baseUrl: string | null;
+  configured: boolean;
+};
+
+export type AiConfigInput = {
+  provider: AiProvider;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+};
+
+export type AiClassification = {
+  type: 'todo' | 'meeting' | 'status' | 'project';
+  title: string;
+  content: string;
+};
+
+export async function fetchAiConfig(): Promise<AiConfigView> {
+  return requestJson<AiConfigView>('/ai/config');
+}
+
+// `null` clears the configured provider entirely — same convention as setRemote.
+export async function setAiConfig(config: AiConfigInput | null): Promise<AiConfigView> {
+  return requestJson<AiConfigView>('/ai/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(
+      config
+        ? {
+            provider: config.provider,
+            apiKey: config.apiKey,
+            model: config.model.trim() ? config.model.trim() : null,
+            baseUrl: config.baseUrl.trim() ? config.baseUrl.trim() : null,
+          }
+        : null
+    ),
+  });
+}
+
+export async function classifyCapture(text: string): Promise<AiClassification> {
+  return requestJson<AiClassification>('/ai/classify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+}

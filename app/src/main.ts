@@ -1,17 +1,22 @@
 import './style.css';
 import { topLevelFolders } from './file-tree';
 import {
+  classifyCapture,
   commitAll,
+  fetchAiConfig,
   fetchConfiguredRemotes,
   fetchConflict,
   fetchSnapshot,
   fetchSyncStatus,
   readFile,
   resolveConflict,
+  setAiConfig,
   setRemote,
   syncPull,
   syncPush,
   writeFile,
+  type AiConfigView,
+  type AiProvider,
   type ConfiguredRemote,
   type ConflictInfo,
   type ConflictSide,
@@ -107,6 +112,11 @@ type AppState = {
   conflictChoices: Record<string, ConflictSide>;
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  aiConfig: AiConfigView;
+  aiProvider: AiProvider;
+  aiApiKey: string;
+  aiModel: string;
+  aiBaseUrl: string;
 };
 
 const state: AppState = {
@@ -141,6 +151,11 @@ const state: AppState = {
   conflictChoices: {},
   captures: loadCaptures(),
   draft: null,
+  aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
+  aiProvider: 'anthropic',
+  aiApiKey: '',
+  aiModel: '',
+  aiBaseUrl: '',
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -178,6 +193,11 @@ function render(): void {
           configuredRemotes: state.configuredRemotes,
           conflict: state.conflict,
           conflictChoices: state.conflictChoices,
+          aiConfig: state.aiConfig,
+          aiProvider: state.aiProvider,
+          aiApiKey: state.aiApiKey,
+          aiModel: state.aiModel,
+          aiBaseUrl: state.aiBaseUrl,
         })
       : screen === 'notebook'
         ? renderNotebookScreen({
@@ -199,6 +219,7 @@ function render(): void {
               busyLabel: state.busyLabel,
               statusMessage: state.statusMessage,
               errorMessage: state.errorMessage,
+              aiConfigured: state.aiConfig.configured,
             })
           : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -261,6 +282,27 @@ void fetchConfiguredRemotes()
   .catch(() => {
     // No remotes configured, or the backend couldn't read them — the Remote URL field just
     // won't offer suggestions, which is a fine, quiet fallback.
+  });
+
+// AI provider config reflects backend/env state, not something this app's own actions change —
+// a single fetch on startup is enough, same rationale as configuredRemotes above.
+void fetchAiConfig()
+  .then((config) => {
+    state.aiConfig = config;
+    if (config.provider) {
+      state.aiProvider = config.provider;
+    }
+    if (config.model) {
+      state.aiModel = config.model;
+    }
+    if (config.baseUrl) {
+      state.aiBaseUrl = config.baseUrl;
+    }
+    render();
+  })
+  .catch(() => {
+    // Not configured yet, or the backend couldn't be reached — Capture's "Let AI propose"
+    // button just stays disabled, which is a fine, quiet fallback.
   });
 
 // The sync indicator is global (every screen, per the mockup's sidebar-footer placement) and
@@ -364,6 +406,42 @@ function bindSettingsScreen(): void {
       state.statusMessage = trimmedUrl ? 'Remote settings saved.' : 'Remote cleared.';
     });
     await refreshSyncStatus();
+  });
+
+  main.querySelector<HTMLSelectElement>('#ai-provider')?.addEventListener('change', (event) => {
+    state.aiProvider = (event.target as HTMLSelectElement).value as AiProvider;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-api-key')?.addEventListener('input', (event) => {
+    state.aiApiKey = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-model')?.addEventListener('input', (event) => {
+    state.aiModel = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-base-url')?.addEventListener('input', (event) => {
+    state.aiBaseUrl = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLButtonElement>('#save-ai-config-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Saving AI settings…', async () => {
+      state.aiConfig = await setAiConfig({
+        provider: state.aiProvider,
+        apiKey: state.aiApiKey,
+        model: state.aiModel,
+        baseUrl: state.aiBaseUrl,
+      });
+      state.statusMessage = 'AI settings saved.';
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#clear-ai-config-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Clearing AI settings…', async () => {
+      state.aiConfig = await setAiConfig(null);
+      state.aiApiKey = '';
+      state.statusMessage = 'AI settings cleared.';
+    });
   });
 
   main.querySelectorAll<HTMLInputElement>('[data-conflict-file]').forEach((input) => {
@@ -681,6 +759,26 @@ function bindCaptureScreen(): void {
         content: defaultDraftContent(type, capture.text),
       };
       render();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-ai-propose-capture]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const captureId = button.dataset.aiProposeCapture;
+      const capture = state.captures.find((entry) => entry.id === captureId);
+      if (!capture) {
+        return;
+      }
+
+      await runRepositoryAction('Asking AI to propose a draft…', async () => {
+        const proposal = await classifyCapture(capture.text);
+        state.draft = {
+          captureId: capture.id,
+          type: proposal.type,
+          title: proposal.title,
+          content: proposal.content,
+        };
+      });
     });
   });
 

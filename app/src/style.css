@@ -284,6 +284,11 @@ main {
   gap: 10px;
 }
 
+.capture-entry-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .capture-entry-footer .secondary-button {
   font-size: 12px;
   padding: 6px 10px;
