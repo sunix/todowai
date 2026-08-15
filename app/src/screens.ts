@@ -23,20 +23,53 @@ export function renderScreen(screen: ScreenId): string {
 
 // A captured note isn't written to the vault at all — per specification/specs.md, it stays an
 // editable draft (kept only in the browser, see main.ts's localStorage-backed persistence) until
-// the user explicitly files it into the Notebook, which is #16/#17's separate, not-yet-built
-// scope. #15 is just the capture + list side of that.
+// the user explicitly files it into the Notebook (this manual path is #16; an AI-proposed one is
+// the separate #17).
 export type CapturedNote = {
   id: string;
   text: string;
   capturedAt: string;
 };
 
+// Purely a frontmatter concern once filed (see specification/specs.md — meetings/projects are
+// plain notes discovered by frontmatter, not their own folders) — every manually filed note
+// lands in the subfolder's "backlog" status folder regardless of type, matching the mockup's own
+// manual-draft default (`status: backlog`). #18's real frontmatter parser is expected to build on
+// this convention, not replace it.
+export type DraftType = 'todo' | 'meeting' | 'status' | 'project';
+
+const DRAFT_TYPE_OPTIONS: Array<{ value: DraftType; label: string }> = [
+  { value: 'todo', label: 'Todo' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'status', label: 'Current status' },
+  { value: 'project', label: 'Project note' },
+];
+
+export type CaptureDraft = {
+  captureId: string;
+  type: DraftType;
+  title: string;
+  content: string;
+};
+
 type CaptureScreenState = {
   captures: CapturedNote[];
+  draft: CaptureDraft | null;
+  isBusy: boolean;
+  busyLabel: string;
+  statusMessage: string;
+  errorMessage: string;
 };
 
 export function renderCaptureScreen(state?: CaptureScreenState): string {
-  const viewState = state ?? { captures: [] };
+  const viewState = state ?? {
+    captures: [],
+    draft: null,
+    isBusy: false,
+    busyLabel: '',
+    statusMessage: '',
+    errorMessage: '',
+  };
 
   const listHtml =
     viewState.captures.length > 0
@@ -45,7 +78,14 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
             (capture) => `
               <li class="capture-entry">
                 <p class="capture-text">${escapeHtml(capture.text)}</p>
-                <span class="capture-meta">${escapeHtml(new Date(capture.capturedAt).toLocaleString())}</span>
+                <div class="capture-entry-footer">
+                  <span class="capture-meta">${escapeHtml(new Date(capture.capturedAt).toLocaleString())}</span>
+                  <button
+                    class="secondary-button"
+                    data-file-capture="${escapeHtmlAttribute(capture.id)}"
+                    ${viewState.isBusy ? 'disabled' : ''}
+                  >File it myself</button>
+                </div>
               </li>
             `
           )
@@ -55,6 +95,21 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
   return `
     <h1 class="title">${TITLES.capture}</h1>
     <p class="placeholder">Jot something down now — file it into the Notebook later.</p>
+    ${
+      viewState.isBusy
+        ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
+        : ''
+    }
+    ${
+      viewState.statusMessage
+        ? `<p class="status-message" role="status">${escapeHtml(viewState.statusMessage)}</p>`
+        : ''
+    }
+    ${
+      viewState.errorMessage
+        ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
+        : ''
+    }
     <div class="card capture-card">
       <textarea
         class="text-area capture-input"
@@ -68,6 +123,35 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
     </div>
     <h2 class="section-title capture-list-title">Recently captured</h2>
     <ul class="capture-list">${listHtml}</ul>
+    ${viewState.draft ? renderDraftPanel(viewState.draft, viewState.isBusy) : ''}
+  `;
+}
+
+function renderDraftPanel(draft: CaptureDraft, isBusy: boolean): string {
+  const typeOptions = DRAFT_TYPE_OPTIONS.map(
+    (option) =>
+      `<option value="${option.value}" ${option.value === draft.type ? 'selected' : ''}>${option.label}</option>`
+  ).join('');
+
+  return `
+    <article class="card draft-card">
+      <h2 class="section-title">File into the Notebook</h2>
+      <p class="section-copy">
+        Nothing is saved until you click "Save to Notebook" — edit anything below first, including the raw
+        frontmatter. New notes are filed into <code>backlog</code>; move them to <code>doing</code>/<code>done</code>
+        later from the Notebook.
+      </p>
+      <label class="field-label" for="draft-type">Type</label>
+      <select class="text-input" id="draft-type" ${isBusy ? 'disabled' : ''}>${typeOptions}</select>
+      <label class="field-label" for="draft-title">Title</label>
+      <input class="text-input" id="draft-title" value="${escapeHtmlAttribute(draft.title)}" ${isBusy ? 'disabled' : ''}>
+      <label class="field-label" for="draft-content">Content (editable before saving)</label>
+      <textarea class="text-area" id="draft-content" ${isBusy ? 'disabled' : ''}>${escapeHtml(draft.content)}</textarea>
+      <div class="button-row">
+        <button class="primary-button" id="draft-save-button" ${isBusy ? 'disabled' : ''}>Save to Notebook</button>
+        <button class="secondary-button" id="draft-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
+      </div>
+    </article>
   `;
 }
 

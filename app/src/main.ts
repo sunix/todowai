@@ -24,7 +24,9 @@ import {
   renderNotebookScreen,
   renderScreen,
   renderSettingsScreen,
+  type CaptureDraft,
   type CapturedNote,
+  type DraftType,
 } from './screens';
 
 // Captures are a draft concept, not vault content — see CapturedNote's doc comment in
@@ -104,6 +106,7 @@ type AppState = {
   conflict: ConflictInfo | null;
   conflictChoices: Record<string, ConflictSide>;
   captures: CapturedNote[];
+  draft: CaptureDraft | null;
 };
 
 const state: AppState = {
@@ -137,6 +140,7 @@ const state: AppState = {
   conflict: null,
   conflictChoices: {},
   captures: loadCaptures(),
+  draft: null,
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -188,7 +192,14 @@ function render(): void {
             errorMessage: state.errorMessage,
           })
         : screen === 'capture'
-          ? renderCaptureScreen({ captures: state.captures })
+          ? renderCaptureScreen({
+              captures: state.captures,
+              draft: state.draft,
+              isBusy: state.isBusy,
+              busyLabel: state.busyLabel,
+              statusMessage: state.statusMessage,
+              errorMessage: state.errorMessage,
+            })
           : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
@@ -606,6 +617,31 @@ function bindNotebookScreen(): void {
   });
 }
 
+function defaultDraftContent(type: DraftType, captureText: string): string {
+  return `---\ntype: ${type}\nstatus: backlog\n---\n\n${captureText}`;
+}
+
+function slugifyTitle(title: string): string {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'untitled';
+}
+
+// Appends a numeric suffix until landing on a path nothing already occupies, rather than
+// silently overwriting an existing note that happens to share a title.
+function uniqueFilePath(existingFiles: string[], folder: string, slug: string): string {
+  let candidate = `${folder}/${slug}.md`;
+  let suffix = 2;
+  while (existingFiles.includes(candidate)) {
+    candidate = `${folder}/${slug}-${suffix}.md`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 function bindCaptureScreen(): void {
   main.querySelector<HTMLButtonElement>('#capture-save-button')?.addEventListener('click', () => {
     const input = main.querySelector<HTMLTextAreaElement>('#capture-input');
@@ -627,6 +663,69 @@ function bindCaptureScreen(): void {
     if (input) {
       input.value = '';
     }
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-file-capture]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const captureId = button.dataset.fileCapture;
+      const capture = state.captures.find((entry) => entry.id === captureId);
+      if (!capture) {
+        return;
+      }
+
+      const type: DraftType = 'todo';
+      state.draft = {
+        captureId: capture.id,
+        type,
+        title: capture.text.slice(0, 48),
+        content: defaultDraftContent(type, capture.text),
+      };
+      render();
+    });
+  });
+
+  // Only the frontmatter's `type:` line is regenerated — the rest of the content stays exactly
+  // as the user left it, so switching type after starting to edit doesn't clobber their work.
+  main.querySelector<HTMLSelectElement>('#draft-type')?.addEventListener('change', (event) => {
+    if (!state.draft) {
+      return;
+    }
+    const newType = (event.target as HTMLSelectElement).value as DraftType;
+    const contentInput = main.querySelector<HTMLTextAreaElement>('#draft-content');
+    if (contentInput) {
+      contentInput.value = contentInput.value.replace(/^type: \w+$/m, `type: ${newType}`);
+    }
+    state.draft = { ...state.draft, type: newType };
+  });
+
+  main.querySelector<HTMLButtonElement>('#draft-cancel-button')?.addEventListener('click', () => {
+    state.draft = null;
+    render();
+  });
+
+  main.querySelector<HTMLButtonElement>('#draft-save-button')?.addEventListener('click', async () => {
+    const draft = state.draft;
+    const titleInput = main.querySelector<HTMLInputElement>('#draft-title');
+    const contentInput = main.querySelector<HTMLTextAreaElement>('#draft-content');
+    if (!draft || !titleInput || !contentInput) {
+      return;
+    }
+
+    const title = titleInput.value.trim() || 'Untitled';
+    const content = contentInput.value;
+
+    await runRepositoryAction('Saving to Notebook…', async () => {
+      const path = uniqueFilePath(state.files, `${state.subfolder}/backlog`, slugifyTitle(title));
+      const snapshot = await writeFile(path, content);
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.captures = state.captures.filter((entry) => entry.id !== draft.captureId);
+      saveCaptures(state.captures);
+      state.draft = null;
+      state.selectedFilePath = path;
+      state.selectedFileContent = content;
+      state.statusMessage = `Saved to Notebook: ${path}.`;
+    });
   });
 }
 
