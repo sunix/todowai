@@ -64,10 +64,10 @@ later, via Tauri for desktop/mobile (M8).
 
 Core note-taking surface and the capture-to-filing flow.
 
-- **Notebook view: file tree + markdown viewer/editor** (M) — https://github.com/sunix/todowai/issues/14
-  Build the Notebook screen: an Obsidian-style file tree (done/doing/backlog/.ai folders) and a markdown viewer/editor pane for the selected file.
-  - [ ] Tree lists real files from the configured subfolder
-  - [ ] Selecting a file loads and allows editing its raw markdown, including frontmatter
+- **Notebook view: file tree + markdown viewer/editor** (M) — https://github.com/sunix/todowai/issues/14 — *Merged (#80).*
+  Build the Notebook screen: an Obsidian-style file tree (done/doing/backlog/.ai folders) and a markdown viewer/editor pane for the selected file. Reuses the file-tree component and readFile/writeFile client already built for Settings' dev-oriented file editor, but scopes the listing to the subfolder — unlike Settings, which deliberately shows the whole vault. Follow-up added "New note"/"New folder" creation: a typed path can include folder segments (write_file already creates any parent directories it needs), and "New folder" seeds an empty `untitled.md` since git can't track an empty directory on its own.
+  - [x] Tree lists real files from the configured subfolder
+  - [x] Selecting a file loads and allows editing its raw markdown, including frontmatter
 
 - **Capture view: quick-add note UI** (S) — https://github.com/sunix/todowai/issues/15
   Build the Capture screen's quick-add form and the Recently Captured list, consistent across mobile, browser, and desktop.

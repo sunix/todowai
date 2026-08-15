@@ -18,7 +18,7 @@
 | [#62](https://github.com/sunix/todowai/issues/62) | Rust core: git pull/push sync engine (offline-first) | Claude | [#76](https://github.com/sunix/todowai/pull/76) | Merged |
 | [#77](https://github.com/sunix/todowai/issues/77) | Web UI: remote sync configuration + status indicator | Claude | [#78](https://github.com/sunix/todowai/pull/78) | Merged |
 | [#13](https://github.com/sunix/todowai/issues/13) | Non-blocking git 3-way merge conflict handling | Claude | [#79](https://github.com/sunix/todowai/pull/79) | Merged |
-| [#14](https://github.com/sunix/todowai/issues/14) | Notebook view: file tree + markdown viewer/editor | Claude | [#80](https://github.com/sunix/todowai/pull/80) | In Review |
+| [#14](https://github.com/sunix/todowai/issues/14) | Notebook view: file tree + markdown viewer/editor | Claude | [#80](https://github.com/sunix/todowai/pull/80) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
