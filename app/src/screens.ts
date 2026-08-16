@@ -319,6 +319,7 @@ type SettingsScreenState = {
   aiApiKey: string;
   aiModel: string;
   aiBaseUrl: string;
+  aiModels: string[];
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -355,6 +356,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     aiApiKey: '',
     aiModel: '',
     aiBaseUrl: '',
+    aiModels: [],
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -497,10 +499,19 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <input
           class="text-input"
           id="ai-model"
+          list="ai-models"
           value="${escapeHtmlAttribute(viewState.aiModel)}"
           placeholder="optional for Anthropic (defaults to claude-opus-5); required for other providers"
           ${viewState.isBusy ? 'disabled' : ''}
         >
+        <datalist id="ai-models">${aiModelOptions(viewState.aiModels)}</datalist>
+        ${
+          viewState.aiModels.length > 0
+            ? `<p class="field-help">Available from the configured provider: ${viewState.aiModels
+                .map((model) => escapeHtml(model))
+                .join(', ')}.</p>`
+            : ''
+        }
         <label class="field-label" for="ai-base-url">Base URL</label>
         <input
           class="text-input"
@@ -621,6 +632,10 @@ function configuredRemoteOptions(remotes: ConfiguredRemote[]): string {
         `<option value="${escapeHtmlAttribute(remote.url)}" label="${escapeHtmlAttribute(remote.name)}"></option>`
     )
     .join('');
+}
+
+function aiModelOptions(models: string[]): string {
+  return models.map((model) => `<option value="${escapeHtmlAttribute(model)}"></option>`).join('');
 }
 
 function renderFileTreeNodes(

@@ -123,6 +123,96 @@ fn build_prompt(text: &str) -> String {
     PROMPT_TEMPLATE.replace("{TEXT}", text)
 }
 
+/// Fetched fresh from the provider each time (not cached) — the model catalog can change
+/// between saves, and this is a cheap, infrequent call (Settings loading, not the hot path).
+pub async fn list_models(config: &AiConfig) -> Result<Vec<String>, AiError> {
+    match config.provider {
+        AiProvider::Anthropic => list_models_via_anthropic(config).await,
+        AiProvider::Openai => list_models_via_openai_compatible(config, "https://api.openai.com/v1").await,
+        AiProvider::Gemini => {
+            list_models_via_openai_compatible(config, "https://generativelanguage.googleapis.com/v1beta/openai").await
+        }
+        AiProvider::Mistral => list_models_via_openai_compatible(config, "https://api.mistral.ai/v1").await,
+        AiProvider::Groq => list_models_via_openai_compatible(config, "https://api.groq.com/openai/v1").await,
+        AiProvider::Ollama => list_models_via_openai_compatible(config, "http://localhost:11434/v1").await,
+    }
+}
+
+async fn list_models_via_anthropic(config: &AiConfig) -> Result<Vec<String>, AiError> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", &config.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .await
+        .map_err(|error| AiError::Request(format!("could not reach Anthropic: {error}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(AiError::Request(format!("Anthropic API error ({status}): {body_text}")));
+    }
+
+    let parsed: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| AiError::Request(format!("could not parse Anthropic's response: {error}")))?;
+
+    Ok(extract_model_ids(&parsed))
+}
+
+/// Same `/models` shape across OpenAI, Gemini, Mistral, Groq, and Ollama — mirrors the
+/// `/chat/completions` adapter these providers already share.
+async fn list_models_via_openai_compatible(config: &AiConfig, default_base_url: &str) -> Result<Vec<String>, AiError> {
+    let base_url = resolve_base_url(config, default_base_url);
+    let client = reqwest::Client::new();
+    let mut request = client.get(format!("{}/models", base_url.trim_end_matches('/')));
+    if !config.api_key.trim().is_empty() {
+        request = request.header("authorization", format!("Bearer {}", config.api_key));
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| AiError::Request(format!("could not reach {base_url}: {error}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(AiError::Request(format!("provider returned an error ({status}): {body_text}")));
+    }
+
+    let parsed: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| AiError::Request(format!("could not parse the provider's response: {error}")))?;
+
+    Ok(extract_model_ids(&parsed))
+}
+
+/// Both Anthropic's `/models` and the OpenAI-compatible `/models` return `{ "data": [{"id": ...}, ...] }`.
+fn extract_model_ids(response: &serde_json::Value) -> Vec<String> {
+    response
+        .get("data")
+        .and_then(|value| value.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("id").and_then(|id| id.as_str()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn resolve_base_url(config: &AiConfig, default_base_url: &str) -> String {
+    config
+        .base_url
+        .clone()
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| default_base_url.to_string())
+}
+
 pub async fn classify(text: &str, config: &AiConfig) -> Result<AiClassification, AiError> {
     let prompt = build_prompt(text);
     let raw = match config.provider {
@@ -204,11 +294,7 @@ async fn classify_via_openai_compatible(prompt: &str, config: &AiConfig, default
         .filter(|model| !model.trim().is_empty())
         .ok_or_else(|| AiError::Configuration("a model name is required for this provider".to_string()))?;
 
-    let base_url = config
-        .base_url
-        .clone()
-        .filter(|url| !url.trim().is_empty())
-        .unwrap_or_else(|| default_base_url.to_string());
+    let base_url = resolve_base_url(config, default_base_url);
 
     let client = reqwest::Client::new();
     let mut request = client
@@ -294,5 +380,23 @@ mod tests {
     #[test]
     fn parse_classification_rejects_non_json() {
         assert!(parse_classification("not json at all").is_err());
+    }
+
+    #[test]
+    fn extract_model_ids_reads_the_shared_openai_style_shape() {
+        let response = serde_json::json!({
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+                {"id": "gemma4:26b", "object": "model"},
+            ],
+        });
+        assert_eq!(extract_model_ids(&response), vec!["gpt-4o-mini", "gemma4:26b"]);
+    }
+
+    #[test]
+    fn extract_model_ids_defaults_to_empty_on_an_unexpected_shape() {
+        let response = serde_json::json!({ "unexpected": true });
+        assert!(extract_model_ids(&response).is_empty());
     }
 }

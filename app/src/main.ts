@@ -4,6 +4,7 @@ import {
   classifyCapture,
   commitAll,
   fetchAiConfig,
+  fetchAiModels,
   fetchConfiguredRemotes,
   fetchConflict,
   fetchSnapshot,
@@ -117,6 +118,7 @@ type AppState = {
   aiApiKey: string;
   aiModel: string;
   aiBaseUrl: string;
+  aiModels: string[];
 };
 
 const state: AppState = {
@@ -156,6 +158,7 @@ const state: AppState = {
   aiApiKey: '',
   aiModel: '',
   aiBaseUrl: '',
+  aiModels: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -198,6 +201,7 @@ function render(): void {
           aiApiKey: state.aiApiKey,
           aiModel: state.aiModel,
           aiBaseUrl: state.aiBaseUrl,
+          aiModels: state.aiModels,
         })
       : screen === 'notebook'
         ? renderNotebookScreen({
@@ -284,6 +288,19 @@ void fetchConfiguredRemotes()
     // won't offer suggestions, which is a fine, quiet fallback.
   });
 
+// Queries the saved provider's model catalog — called on startup (if already configured) and
+// again after every save, since a changed provider/base URL means a different catalog. Errors
+// (provider unreachable, no config yet) just leave the Model field without suggestions, a fine
+// quiet fallback rather than blocking the rest of Settings.
+async function refreshAiModels(): Promise<void> {
+  try {
+    state.aiModels = await fetchAiModels();
+  } catch {
+    state.aiModels = [];
+  }
+  render();
+}
+
 // AI provider config reflects backend/env state, not something this app's own actions change —
 // a single fetch on startup is enough, same rationale as configuredRemotes above.
 void fetchAiConfig()
@@ -299,6 +316,9 @@ void fetchAiConfig()
       state.aiBaseUrl = config.baseUrl;
     }
     render();
+    if (config.configured) {
+      void refreshAiModels();
+    }
   })
   .catch(() => {
     // Not configured yet, or the backend couldn't be reached — Capture's "Let AI propose"
@@ -434,12 +454,14 @@ function bindSettingsScreen(): void {
       });
       state.statusMessage = 'AI settings saved.';
     });
+    await refreshAiModels();
   });
 
   main.querySelector<HTMLButtonElement>('#clear-ai-config-button')?.addEventListener('click', async () => {
     await runRepositoryAction('Clearing AI settings…', async () => {
       state.aiConfig = await setAiConfig(null);
       state.aiApiKey = '';
+      state.aiModels = [];
       state.statusMessage = 'AI settings cleared.';
     });
   });

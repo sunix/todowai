@@ -79,6 +79,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/conflict/resolve", post(resolve_conflict))
         .route("/api/ai/config", get(get_ai_config).put(set_ai_config))
         .route("/api/ai/classify", post(classify_capture))
+        .route("/api/ai/models", get(list_ai_models))
         .with_state(state)
 }
 
@@ -257,6 +258,19 @@ async fn classify_capture(
     let config = config.ok_or(RepoError::AiNotConfigured)?;
     let classification = crate::ai::classify(&body.text, &config).await?;
     Ok(Json(classification))
+}
+
+/// Backs the Model field's suggestion dropdown in Settings — queries the *saved* config's
+/// provider, not whatever is currently typed but unsaved in the form (same convention as
+/// /api/sync/remotes reading the repository's actual git config, not a form draft).
+async fn list_ai_models(State(ai_config): State<SharedAiConfig>) -> Result<Json<Vec<String>>, RepoError> {
+    let config = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    let config = config.ok_or(RepoError::AiNotConfigured)?;
+    let models = crate::ai::list_models(&config).await?;
+    Ok(Json(models))
 }
 
 #[cfg(test)]

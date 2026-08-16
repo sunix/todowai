@@ -236,3 +236,9 @@ export async function classifyCapture(text: string): Promise<AiClassification> {
     body: JSON.stringify({ text }),
   });
 }
+
+// Queries the *saved* provider's model catalog (not whatever's typed but unsaved in the form) —
+// surfaced as suggestions on the Model field, same pattern as fetchConfiguredRemotes.
+export async function fetchAiModels(): Promise<string[]> {
+  return requestJson<string[]>('/ai/models');
+}
