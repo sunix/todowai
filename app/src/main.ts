@@ -23,6 +23,7 @@ import {
   type ConflictSide,
   type SyncStatus,
 } from './repository';
+import { parseFrontmatter, serializeFrontmatter, setFrontmatterValue } from './frontmatter';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import {
   escapeHtml,
@@ -718,7 +719,13 @@ function bindNotebookScreen(): void {
 }
 
 function defaultDraftContent(type: DraftType, captureText: string): string {
-  return `---\ntype: ${type}\nstatus: backlog\n---\n\n${captureText}`;
+  return serializeFrontmatter({
+    frontmatter: [
+      ['type', type],
+      ['status', 'backlog'],
+    ],
+    body: captureText,
+  });
 }
 
 // Local date, not UTC — a capture's "day" should match what the user experienced, not shift
@@ -814,8 +821,9 @@ function bindCaptureScreen(): void {
     });
   });
 
-  // Only the frontmatter's `type:` line is regenerated — the rest of the content stays exactly
-  // as the user left it, so switching type after starting to edit doesn't clobber their work.
+  // Only the frontmatter's `type` field is regenerated — every other field (including ones an
+  // AI proposal or the user added by hand, e.g. `project`/`date`/`attendees`) round-trips
+  // untouched, so switching type after starting to edit doesn't clobber their work.
   main.querySelector<HTMLSelectElement>('#draft-type')?.addEventListener('change', (event) => {
     if (!state.draft) {
       return;
@@ -823,7 +831,11 @@ function bindCaptureScreen(): void {
     const newType = (event.target as HTMLSelectElement).value as DraftType;
     const contentInput = main.querySelector<HTMLTextAreaElement>('#draft-content');
     if (contentInput) {
-      contentInput.value = contentInput.value.replace(/^type: \w+$/m, `type: ${newType}`);
+      const parsed = parseFrontmatter(contentInput.value);
+      contentInput.value = serializeFrontmatter({
+        frontmatter: setFrontmatterValue(parsed.frontmatter, 'type', newType),
+        body: parsed.body,
+      });
     }
     state.draft = { ...state.draft, type: newType };
   });

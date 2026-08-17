@@ -1,4 +1,5 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
+import { parseFrontmatter } from './frontmatter';
 import type {
   AiConfigView,
   AiProvider,
@@ -208,6 +209,24 @@ function notebookFiles(files: string[], subfolder: string): string[] {
   return files.filter((path) => path === subfolder || path.startsWith(`${subfolder}/`));
 }
 
+// Read-only, #18's shared parser applied to whatever's currently open — including notes Todowai
+// didn't create itself (e.g. an existing Obsidian note with its own frontmatter). Editing stays
+// raw-text below this (see the textarea it sits above); this is purely a legibility aid, not a
+// structured form, so a file with no recognizable frontmatter just renders nothing here.
+function frontmatterSummaryHtml(content: string): string {
+  const { frontmatter } = parseFrontmatter(content);
+  if (frontmatter.length === 0) {
+    return '';
+  }
+  const chips = frontmatter
+    .map(([key, value]) => {
+      const displayValue = Array.isArray(value) ? value.join(', ') : value;
+      return `<span class="frontmatter-chip"><strong>${escapeHtml(key)}</strong>: ${escapeHtml(displayValue)}</span>`;
+    })
+    .join('');
+  return `<p class="notebook-frontmatter-summary">${chips}</p>`;
+}
+
 export function renderNotebookScreen(state?: NotebookScreenState): string {
   const viewState = state ?? {
     subfolder: 'todowai',
@@ -276,6 +295,7 @@ export function renderNotebookScreen(state?: NotebookScreenState): string {
           hasSelection
             ? `
               <p class="notebook-editor-path"><code>${escapeHtml(viewState.selectedFilePath)}</code></p>
+              ${frontmatterSummaryHtml(viewState.selectedFileContent)}
               <textarea
                 class="notebook-editor-content"
                 id="notebook-file-content"

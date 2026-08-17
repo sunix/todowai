@@ -384,6 +384,26 @@ main {
   color: var(--text);
 }
 
+.notebook-frontmatter-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.frontmatter-chip {
+  background: #252936;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.frontmatter-chip strong {
+  color: var(--text);
+}
+
 .notebook-create-row {
   display: flex;
   flex-direction: column;
