@@ -41,6 +41,8 @@ const SITUATIONAL_STATUS_SUGGESTIONS = [
   '💼 Working on a customer project',
   '🏢 Working on an internal project',
   '🚀 Working on a side project',
+  '📖 Reading a book',
+  '🎓 Learning (tutorial, course)',
 ];
 
 const AI_PROVIDER_OPTIONS: Array<{ value: AiProvider; label: string }> = [
