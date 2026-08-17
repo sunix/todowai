@@ -86,10 +86,10 @@ Core note-taking surface and the capture-to-filing flow.
   - [x] User can edit any field before saving
   - [x] Nothing is written to the Notebook without explicit user confirmation
 
-- **Frontmatter conventions & parser for note types** (S) — https://github.com/sunix/todowai/issues/18
-  Define and implement shared frontmatter parsing/writing for todo, meeting, status, and project-note types (e.g. type, status, project, date, attendees fields).
-  - [ ] Frontmatter is parsed consistently across Notebook, Meetings, Horizon, and Capture
-  - [ ] Round-tripping a note (read, edit, save) preserves unrelated frontmatter fields
+- **Frontmatter conventions & parser for note types** (S) — https://github.com/sunix/todowai/issues/18 — *Merged (#84).*
+  Define and implement shared frontmatter parsing/writing for todo, meeting, status, and project-note types (e.g. type, status, project, date, attendees fields). Shipped as `app/src/frontmatter.ts`, wired into Capture's draft flow (replacing a raw string template and a fragile type-line regex) and Notebook's viewer (a read-only parsed-frontmatter chip summary above the raw editor). Meetings/Horizon/Projects views (#25/#26/#28) don't exist yet, so the parser ships as shared infrastructure for them to consume once built.
+  - [x] Frontmatter is parsed consistently across Notebook and Capture (Meetings/Horizon aren't built yet — see above)
+  - [x] Round-tripping a note (read, edit, save) preserves unrelated frontmatter fields
 
 
 ## M3 — Current status & Next Action
