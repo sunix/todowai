@@ -1,17 +1,23 @@
 import './style.css';
 import { topLevelFolders } from './file-tree';
 import {
+  classifyCapture,
   commitAll,
+  fetchAiConfig,
+  fetchAiModels,
   fetchConfiguredRemotes,
   fetchConflict,
   fetchSnapshot,
   fetchSyncStatus,
   readFile,
   resolveConflict,
+  setAiConfig,
   setRemote,
   syncPull,
   syncPush,
   writeFile,
+  type AiConfigView,
+  type AiProvider,
   type ConfiguredRemote,
   type ConflictInfo,
   type ConflictSide,
@@ -107,6 +113,12 @@ type AppState = {
   conflictChoices: Record<string, ConflictSide>;
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  aiConfig: AiConfigView;
+  aiProvider: AiProvider;
+  aiApiKey: string;
+  aiModel: string;
+  aiBaseUrl: string;
+  aiModels: string[];
 };
 
 const state: AppState = {
@@ -141,6 +153,12 @@ const state: AppState = {
   conflictChoices: {},
   captures: loadCaptures(),
   draft: null,
+  aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
+  aiProvider: 'anthropic',
+  aiApiKey: '',
+  aiModel: '',
+  aiBaseUrl: '',
+  aiModels: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -178,6 +196,12 @@ function render(): void {
           configuredRemotes: state.configuredRemotes,
           conflict: state.conflict,
           conflictChoices: state.conflictChoices,
+          aiConfig: state.aiConfig,
+          aiProvider: state.aiProvider,
+          aiApiKey: state.aiApiKey,
+          aiModel: state.aiModel,
+          aiBaseUrl: state.aiBaseUrl,
+          aiModels: state.aiModels,
         })
       : screen === 'notebook'
         ? renderNotebookScreen({
@@ -199,6 +223,7 @@ function render(): void {
               busyLabel: state.busyLabel,
               statusMessage: state.statusMessage,
               errorMessage: state.errorMessage,
+              aiConfigured: state.aiConfig.configured,
             })
           : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -261,6 +286,43 @@ void fetchConfiguredRemotes()
   .catch(() => {
     // No remotes configured, or the backend couldn't read them — the Remote URL field just
     // won't offer suggestions, which is a fine, quiet fallback.
+  });
+
+// Queries the saved provider's model catalog — called on startup (if already configured) and
+// again after every save, since a changed provider/base URL means a different catalog. Errors
+// (provider unreachable, no config yet) just leave the Model field without suggestions, a fine
+// quiet fallback rather than blocking the rest of Settings.
+async function refreshAiModels(): Promise<void> {
+  try {
+    state.aiModels = await fetchAiModels();
+  } catch {
+    state.aiModels = [];
+  }
+  render();
+}
+
+// AI provider config reflects backend/env state, not something this app's own actions change —
+// a single fetch on startup is enough, same rationale as configuredRemotes above.
+void fetchAiConfig()
+  .then((config) => {
+    state.aiConfig = config;
+    if (config.provider) {
+      state.aiProvider = config.provider;
+    }
+    if (config.model) {
+      state.aiModel = config.model;
+    }
+    if (config.baseUrl) {
+      state.aiBaseUrl = config.baseUrl;
+    }
+    render();
+    if (config.configured) {
+      void refreshAiModels();
+    }
+  })
+  .catch(() => {
+    // Not configured yet, or the backend couldn't be reached — Capture's "Let AI propose"
+    // button just stays disabled, which is a fine, quiet fallback.
   });
 
 // The sync indicator is global (every screen, per the mockup's sidebar-footer placement) and
@@ -364,6 +426,44 @@ function bindSettingsScreen(): void {
       state.statusMessage = trimmedUrl ? 'Remote settings saved.' : 'Remote cleared.';
     });
     await refreshSyncStatus();
+  });
+
+  main.querySelector<HTMLSelectElement>('#ai-provider')?.addEventListener('change', (event) => {
+    state.aiProvider = (event.target as HTMLSelectElement).value as AiProvider;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-api-key')?.addEventListener('input', (event) => {
+    state.aiApiKey = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-model')?.addEventListener('input', (event) => {
+    state.aiModel = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLInputElement>('#ai-base-url')?.addEventListener('input', (event) => {
+    state.aiBaseUrl = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLButtonElement>('#save-ai-config-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Saving AI settings…', async () => {
+      state.aiConfig = await setAiConfig({
+        provider: state.aiProvider,
+        apiKey: state.aiApiKey,
+        model: state.aiModel,
+        baseUrl: state.aiBaseUrl,
+      });
+      state.statusMessage = 'AI settings saved.';
+    });
+    await refreshAiModels();
+  });
+
+  main.querySelector<HTMLButtonElement>('#clear-ai-config-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Clearing AI settings…', async () => {
+      state.aiConfig = await setAiConfig(null);
+      state.aiApiKey = '';
+      state.aiModels = [];
+      state.statusMessage = 'AI settings cleared.';
+    });
   });
 
   main.querySelectorAll<HTMLInputElement>('[data-conflict-file]').forEach((input) => {
@@ -621,6 +721,16 @@ function defaultDraftContent(type: DraftType, captureText: string): string {
   return `---\ntype: ${type}\nstatus: backlog\n---\n\n${captureText}`;
 }
 
+// Local date, not UTC — a capture's "day" should match what the user experienced, not shift
+// across midnight depending on timezone. Matches the mockup's own note-naming convention
+// (e.g. `2026-08-10-shipped-spec-pr.md`, `2026-08-11-conversation.md`).
+function dateStamp(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function slugifyTitle(title: string): string {
   const slug = title
     .trim()
@@ -684,6 +794,26 @@ function bindCaptureScreen(): void {
     });
   });
 
+  main.querySelectorAll<HTMLButtonElement>('[data-ai-propose-capture]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const captureId = button.dataset.aiProposeCapture;
+      const capture = state.captures.find((entry) => entry.id === captureId);
+      if (!capture) {
+        return;
+      }
+
+      await runRepositoryAction('Asking AI to propose a draft…', async () => {
+        const proposal = await classifyCapture(capture.text);
+        state.draft = {
+          captureId: capture.id,
+          type: proposal.type,
+          title: proposal.title,
+          content: proposal.content,
+        };
+      });
+    });
+  });
+
   // Only the frontmatter's `type:` line is regenerated — the rest of the content stays exactly
   // as the user left it, so switching type after starting to edit doesn't clobber their work.
   main.querySelector<HTMLSelectElement>('#draft-type')?.addEventListener('change', (event) => {
@@ -715,7 +845,12 @@ function bindCaptureScreen(): void {
     const content = contentInput.value;
 
     await runRepositoryAction('Saving to Notebook…', async () => {
-      const path = uniqueFilePath(state.files, `${state.subfolder}/backlog`, slugifyTitle(title));
+      // Dated by when the thing was captured, not when it happened to get filed — a status
+      // jotted down at 9am and filed at 6pm is still a 9am status.
+      const capture = state.captures.find((entry) => entry.id === draft.captureId);
+      const capturedAt = capture ? new Date(capture.capturedAt) : new Date();
+      const slug = `${dateStamp(capturedAt)}-${slugifyTitle(title)}`;
+      const path = uniqueFilePath(state.files, `${state.subfolder}/backlog`, slug);
       const snapshot = await writeFile(path, content);
       state.files = snapshot.files;
       state.pendingChanges = snapshot.pendingChanges;

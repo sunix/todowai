@@ -5,6 +5,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 
+use crate::ai::{AiClassification, AiConfig, AiConfigView};
 use crate::error::RepoError;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
@@ -18,10 +19,17 @@ use crate::sync::SyncScheduler;
 /// every other request through a shared lock the way it would with a plain `.lock().await` here.
 pub type SharedRepository = Arc<Mutex<Repository>>;
 
+/// AI credentials/provider choice, kept in memory only — same rationale as the repository's
+/// RemoteConfig (see repository.rs). A plain std::sync::Mutex is fine here (unlike the
+/// repository's, which guards blocking libgit2 calls): reads/writes are just a cheap struct
+/// clone, never held across an .await.
+pub type SharedAiConfig = Arc<Mutex<Option<AiConfig>>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub repository: SharedRepository,
     pub scheduler: SyncScheduler,
+    pub ai_config: SharedAiConfig,
 }
 
 impl FromRef<AppState> for SharedRepository {
@@ -33,6 +41,12 @@ impl FromRef<AppState> for SharedRepository {
 impl FromRef<AppState> for SyncScheduler {
     fn from_ref(state: &AppState) -> Self {
         state.scheduler.clone()
+    }
+}
+
+impl FromRef<AppState> for SharedAiConfig {
+    fn from_ref(state: &AppState) -> Self {
+        state.ai_config.clone()
     }
 }
 
@@ -63,6 +77,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/push", post(sync_push))
         .route("/api/sync/conflict", get(get_conflict))
         .route("/api/sync/conflict/resolve", post(resolve_conflict))
+        .route("/api/ai/config", get(get_ai_config).put(set_ai_config))
+        .route("/api/ai/classify", post(classify_capture))
+        .route("/api/ai/models", get(list_ai_models))
         .with_state(state)
 }
 
@@ -209,6 +226,53 @@ async fn resolve_conflict(
     Ok(Json(scheduler.status()))
 }
 
+async fn get_ai_config(State(ai_config): State<SharedAiConfig>) -> Json<AiConfigView> {
+    let config = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    Json(AiConfigView::from_config(config.as_ref()))
+}
+
+/// `null` clears the configured provider entirely — same convention as PUT /api/sync/remote.
+async fn set_ai_config(
+    State(ai_config): State<SharedAiConfig>,
+    Json(body): Json<Option<AiConfig>>,
+) -> Json<AiConfigView> {
+    let mut config = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    *config = body;
+    Json(AiConfigView::from_config(config.as_ref()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClassifyRequest {
+    text: String,
+}
+
+async fn classify_capture(
+    State(ai_config): State<SharedAiConfig>,
+    Json(body): Json<ClassifyRequest>,
+) -> Result<Json<AiClassification>, RepoError> {
+    let config = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    let config = config.ok_or(RepoError::AiNotConfigured)?;
+    let classification = crate::ai::classify(&body.text, &config).await?;
+    Ok(Json(classification))
+}
+
+/// Backs the Model field's suggestion dropdown in Settings — queries the *saved* config's
+/// provider, not whatever is currently typed but unsaved in the form (same convention as
+/// /api/sync/remotes reading the repository's actual git config, not a form draft).
+async fn list_ai_models(State(ai_config): State<SharedAiConfig>) -> Result<Json<Vec<String>>, RepoError> {
+    let config = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    let config = config.ok_or(RepoError::AiNotConfigured)?;
+    let models = crate::ai::list_models(&config).await?;
+    Ok(Json(models))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,7 +305,11 @@ mod tests {
             author_email: "todowai-sync@example.invalid".to_string(),
         };
         let scheduler = SyncScheduler::new(backend, Duration::from_millis(50), Duration::from_secs(3600));
-        AppState { repository, scheduler }
+        AppState {
+            repository,
+            scheduler,
+            ai_config: Arc::new(Mutex::new(None)),
+        }
     }
 
     #[tokio::test]
@@ -367,5 +435,77 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let result: SyncResult = serde_json::from_slice(&body).unwrap();
         assert_eq!(result.status, crate::repository::SyncStatus::Error);
+    }
+
+    #[tokio::test]
+    async fn ai_config_defaults_to_unconfigured() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(Request::builder().uri("/api/ai/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let view: crate::ai::AiConfigView = serde_json::from_slice(&body).unwrap();
+        assert!(!view.configured);
+        assert!(view.provider.is_none());
+    }
+
+    #[tokio::test]
+    async fn setting_ai_config_never_echoes_the_api_key_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/ai/config")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "provider": "anthropic",
+                            "apiKey": "sk-super-secret",
+                            "model": "claude-opus-5",
+                            "baseUrl": null
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!body_text.contains("sk-super-secret"), "response leaked the API key: {body_text}");
+
+        let view: crate::ai::AiConfigView = serde_json::from_str(&body_text).unwrap();
+        assert!(view.configured);
+        assert_eq!(view.model.as_deref(), Some("claude-opus-5"));
+    }
+
+    #[tokio::test]
+    async fn classify_without_a_configured_provider_is_a_client_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/ai/classify")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&serde_json::json!({ "text": "buy milk" })).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

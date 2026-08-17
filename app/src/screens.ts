@@ -1,6 +1,27 @@
 import { buildFileTree, type FileTreeNode } from './file-tree';
-import type { ConfiguredRemote, ConflictInfo, ConflictSide, RepositoryChange, RepositoryHistoryEntry } from './repository';
+import type {
+  AiConfigView,
+  AiProvider,
+  ConfiguredRemote,
+  ConflictInfo,
+  ConflictSide,
+  RepositoryChange,
+  RepositoryHistoryEntry,
+} from './repository';
 import type { ScreenId } from './router';
+
+const AI_PROVIDER_OPTIONS: Array<{ value: AiProvider; label: string }> = [
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Google Gemini' },
+  { value: 'mistral', label: 'Mistral' },
+  { value: 'groq', label: 'Groq' },
+  { value: 'ollama', label: 'Ollama (local)' },
+];
+
+function aiProviderLabel(provider: AiProvider | null): string {
+  return AI_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? 'unknown provider';
+}
 
 const TITLES: Record<ScreenId, string> = {
   capture: 'Capture',
@@ -59,6 +80,7 @@ type CaptureScreenState = {
   busyLabel: string;
   statusMessage: string;
   errorMessage: string;
+  aiConfigured: boolean;
 };
 
 export function renderCaptureScreen(state?: CaptureScreenState): string {
@@ -69,6 +91,7 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
     busyLabel: '',
     statusMessage: '',
     errorMessage: '',
+    aiConfigured: false,
   };
 
   const listHtml =
@@ -80,11 +103,19 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
                 <p class="capture-text">${escapeHtml(capture.text)}</p>
                 <div class="capture-entry-footer">
                   <span class="capture-meta">${escapeHtml(new Date(capture.capturedAt).toLocaleString())}</span>
-                  <button
-                    class="secondary-button"
-                    data-file-capture="${escapeHtmlAttribute(capture.id)}"
-                    ${viewState.isBusy ? 'disabled' : ''}
-                  >File it myself</button>
+                  <div class="capture-entry-actions">
+                    <button
+                      class="secondary-button"
+                      data-file-capture="${escapeHtmlAttribute(capture.id)}"
+                      ${viewState.isBusy ? 'disabled' : ''}
+                    >File it myself</button>
+                    <button
+                      class="secondary-button"
+                      data-ai-propose-capture="${escapeHtmlAttribute(capture.id)}"
+                      ${viewState.isBusy || !viewState.aiConfigured ? 'disabled' : ''}
+                      title="${viewState.aiConfigured ? '' : 'Configure an AI provider in Settings first'}"
+                    >Let AI propose</button>
+                  </div>
                 </div>
               </li>
             `
@@ -283,6 +314,12 @@ type SettingsScreenState = {
   configuredRemotes: ConfiguredRemote[];
   conflict: ConflictInfo | null;
   conflictChoices: Record<string, ConflictSide>;
+  aiConfig: AiConfigView;
+  aiProvider: AiProvider;
+  aiApiKey: string;
+  aiModel: string;
+  aiBaseUrl: string;
+  aiModels: string[];
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -314,6 +351,12 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     configuredRemotes: [],
     conflict: null,
     conflictChoices: {},
+    aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
+    aiProvider: 'anthropic' as AiProvider,
+    aiApiKey: '',
+    aiModel: '',
+    aiBaseUrl: '',
+    aiModels: [],
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -422,6 +465,67 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <p class="field-help">Leave the URL blank and save to disconnect the remote entirely.</p>
       </article>
 
+      <article class="card">
+        <h2 class="section-title">AI provider</h2>
+        <p class="section-copy">
+          Optional: connect an AI provider so Capture's "Let AI propose" button can draft a
+          classification for you. Credentials are kept in memory on the backend only, never
+          written to disk. Currently:
+          <strong>${
+            viewState.aiConfig.configured
+              ? `${escapeHtml(aiProviderLabel(viewState.aiConfig.provider))}${
+                  viewState.aiConfig.model ? ` (${escapeHtml(viewState.aiConfig.model)})` : ''
+                }`
+              : 'not configured'
+          }</strong>.
+        </p>
+        <label class="field-label" for="ai-provider">Provider</label>
+        <select class="text-input" id="ai-provider" ${viewState.isBusy ? 'disabled' : ''}>
+          ${AI_PROVIDER_OPTIONS.map(
+            (option) =>
+              `<option value="${option.value}" ${option.value === viewState.aiProvider ? 'selected' : ''}>${option.label}</option>`
+          ).join('')}
+        </select>
+        <label class="field-label" for="ai-api-key">API key</label>
+        <input
+          class="text-input"
+          type="password"
+          id="ai-api-key"
+          value="${escapeHtmlAttribute(viewState.aiApiKey)}"
+          placeholder="not needed for Ollama"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+        <label class="field-label" for="ai-model">Model</label>
+        <input
+          class="text-input"
+          id="ai-model"
+          list="ai-models"
+          value="${escapeHtmlAttribute(viewState.aiModel)}"
+          placeholder="optional for Anthropic (defaults to claude-opus-5); required for other providers"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+        <datalist id="ai-models">${aiModelOptions(viewState.aiModels)}</datalist>
+        ${
+          viewState.aiModels.length > 0
+            ? `<p class="field-help">Available from the configured provider: ${viewState.aiModels
+                .map((model) => escapeHtml(model))
+                .join(', ')}.</p>`
+            : ''
+        }
+        <label class="field-label" for="ai-base-url">Base URL</label>
+        <input
+          class="text-input"
+          id="ai-base-url"
+          value="${escapeHtmlAttribute(viewState.aiBaseUrl)}"
+          placeholder="override the default endpoint — e.g. for Ollama or a self-hosted server"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+        <div class="button-row">
+          <button class="primary-button" id="save-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Save AI settings</button>
+          <button class="secondary-button" id="clear-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Clear</button>
+        </div>
+      </article>
+
       ${viewState.conflict ? renderConflictCard(viewState.conflict, viewState.conflictChoices, viewState.isBusy) : ''}
 
       <div class="settings-grid">
@@ -528,6 +632,10 @@ function configuredRemoteOptions(remotes: ConfiguredRemote[]): string {
         `<option value="${escapeHtmlAttribute(remote.url)}" label="${escapeHtmlAttribute(remote.name)}"></option>`
     )
     .join('');
+}
+
+function aiModelOptions(models: string[]): string {
+  return models.map((model) => `<option value="${escapeHtmlAttribute(model)}"></option>`).join('');
 }
 
 function renderFileTreeNodes(
