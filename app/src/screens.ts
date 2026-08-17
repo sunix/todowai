@@ -11,6 +11,17 @@ import type {
 } from './repository';
 import type { ScreenId } from './router';
 
+// Quick picks for the situational-status field — the text input stays free-form (same
+// <datalist>-suggestion convention as the git-remote-URL and AI-model fields elsewhere), these
+// are just a starting point, not an enum the field is restricted to.
+const SITUATIONAL_STATUS_SUGGESTIONS = [
+  '☕ Coffee break',
+  '🍽️ Lunch break',
+  '🍳 Having breakfast',
+  '🏫 Picking up the kids from school',
+  '⚽ At the stadium for a football match',
+];
+
 const AI_PROVIDER_OPTIONS: Array<{ value: AiProvider; label: string }> = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
   { value: 'openai', label: 'OpenAI' },
@@ -91,10 +102,14 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
         <input
           class="text-input"
           id="status-label"
+          list="status-situational-suggestions"
           value="${escapeHtmlAttribute(viewState.editLabel)}"
           placeholder="e.g. Coffee break, taking the metro…"
           ${viewState.isBusy ? 'disabled' : ''}
         >
+        <datalist id="status-situational-suggestions">
+          ${SITUATIONAL_STATUS_SUGGESTIONS.map((suggestion) => `<option value="${escapeHtmlAttribute(suggestion)}"></option>`).join('')}
+        </datalist>
       `
       : `
         <label class="field-label" for="status-task-path">Task note</label>
