@@ -38,8 +38,9 @@ const SITUATIONAL_STATUS_SUGGESTIONS = [
   '🐕 Walking the dog',
   '📺 Winding down / watching TV',
   '🛋️ Taking a break on the couch',
-  '💼 Working at a customer site',
+  '💼 Working on a customer project',
   '🏢 Working on an internal project',
+  '🚀 Working on a side project',
 ];
 
 const AI_PROVIDER_OPTIONS: Array<{ value: AiProvider; label: string }> = [
