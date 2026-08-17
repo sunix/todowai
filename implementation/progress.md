@@ -21,7 +21,7 @@
 | [#14](https://github.com/sunix/todowai/issues/14) | Notebook view: file tree + markdown viewer/editor | Claude | [#80](https://github.com/sunix/todowai/pull/80) | Merged |
 | [#15](https://github.com/sunix/todowai/issues/15) | Capture view: quick-add note UI | Claude | [#81](https://github.com/sunix/todowai/pull/81) | Merged |
 | [#16](https://github.com/sunix/todowai/issues/16) | Capture filing flow — manual path | Claude | [#82](https://github.com/sunix/todowai/pull/82) | Merged |
-| [#17](https://github.com/sunix/todowai/issues/17) | Capture filing flow — AI-proposed path | Claude | [#83](https://github.com/sunix/todowai/pull/83) | In Review |
+| [#17](https://github.com/sunix/todowai/issues/17) | Capture filing flow — AI-proposed path | Claude | [#83](https://github.com/sunix/todowai/pull/83) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

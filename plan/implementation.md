@@ -80,11 +80,11 @@ Core note-taking surface and the capture-to-filing flow.
   - [x] Nothing is written to the Notebook until the user explicitly saves
   - [x] Saved item appears in the correct Notebook location for its type
 
-- **Capture filing flow — AI-proposed path** (M) — https://github.com/sunix/todowai/issues/17
-  From a captured note, let the AI propose a classification (type, title, content) as a fully editable draft, per the confirm-first pattern used elsewhere in the app.
-  - [ ] AI drafts type/title/content instead of just a label
-  - [ ] User can edit any field before saving
-  - [ ] Nothing is written to the Notebook without explicit user confirmation
+- **Capture filing flow — AI-proposed path** (M) — https://github.com/sunix/todowai/issues/17 — *Merged (#83).*
+  From a captured note, let the AI propose a classification (type, title, content) as a fully editable draft, per the confirm-first pattern used elsewhere in the app. Supports Anthropic natively plus a shared OpenAI-compatible adapter for OpenAI, Gemini, Mistral, Groq, and Ollama (local), configured via a new Settings "AI provider" card with credentials kept server-side/in-memory only. Same PR also fixed filed-note filenames (manual and AI paths alike) to carry a `<capture-date>-` prefix, since each capture creates a new file rather than overwriting one. Verified against a mock OpenAI-compatible server and, later, a live Anthropic API call against a real vault.
+  - [x] AI drafts type/title/content instead of just a label
+  - [x] User can edit any field before saving
+  - [x] Nothing is written to the Notebook without explicit user confirmation
 
 - **Frontmatter conventions & parser for note types** (S) — https://github.com/sunix/todowai/issues/18
   Define and implement shared frontmatter parsing/writing for todo, meeting, status, and project-note types (e.g. type, status, project, date, attendees fields).
