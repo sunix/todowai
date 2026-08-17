@@ -23,6 +23,7 @@
 | [#16](https://github.com/sunix/todowai/issues/16) | Capture filing flow — manual path | Claude | [#82](https://github.com/sunix/todowai/pull/82) | Merged |
 | [#17](https://github.com/sunix/todowai/issues/17) | Capture filing flow — AI-proposed path | Claude | [#83](https://github.com/sunix/todowai/pull/83) | Merged |
 | [#18](https://github.com/sunix/todowai/issues/18) | Frontmatter conventions & parser for note types | Claude | [#84](https://github.com/sunix/todowai/pull/84) | Merged |
+| [#19](https://github.com/sunix/todowai/issues/19) | Current-status field (task or situational context) | Claude | [#85](https://github.com/sunix/todowai/pull/85) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

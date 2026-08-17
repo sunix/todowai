@@ -96,10 +96,10 @@ Core note-taking surface and the capture-to-filing flow.
 
 The moment-to-moment decision-support loop.
 
-- **Current-status field (task or situational context)** (S) — https://github.com/sunix/todowai/issues/19
-  Implement a persistent current-status field the user can view and set, accepting either a todo/task reference or a free-text situational context (e.g. 'coffee break', 'commuting').
-  - [ ] Status is visible on Next Action and persists across sessions/devices via the synced repo
-  - [ ] Both a task-linked status and a free-text situational status are supported
+- **Current-status field (task or situational context)** (S) — https://github.com/sunix/todowai/issues/19 — *Merged (#85).*
+  Implement a persistent current-status field the user can view and set, accepting either a todo/task reference or a free-text situational context (e.g. 'coffee break', 'commuting'). Built out the Next Action screen around a single well-known file (`<subfolder>/status.md`, using #18's frontmatter parser) rather than a discrete note per entry, synced like any other vault file. Shipped with a curated set of 28 predefined situational-status suggestions (breaks, commute, chores, work-mode switches, reading/learning) as quick picks on the free-text field.
+  - [x] Status is visible on Next Action and persists across sessions/devices via the synced repo
+  - [x] Both a task-linked status and a free-text situational status are supported
 
 - **Next Action: AI next-todo suggestion engine** (L) — https://github.com/sunix/todowai/issues/20
   Implement the suggestion engine that proposes a next todo from current status, notes, backlog, and the connected calendar feed(s), always requiring explicit user confirmation before it is treated as decided.
