@@ -5,7 +5,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use crate::ai::{AiClassification, AiConfig, AiConfigView};
+use crate::ai::{AiClassification, AiConfig, AiConfigView, BacklogNote, NextActionSuggestion};
 use crate::error::RepoError;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
@@ -80,6 +80,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/config", get(get_ai_config).put(set_ai_config))
         .route("/api/ai/classify", post(classify_capture))
         .route("/api/ai/models", get(list_ai_models))
+        .route("/api/ai/suggest-next-action", post(suggest_next_action))
         .with_state(state)
 }
 
@@ -271,6 +272,66 @@ async fn list_ai_models(State(ai_config): State<SharedAiConfig>) -> Result<Json<
     let config = config.ok_or(RepoError::AiNotConfigured)?;
     let models = crate::ai::list_models(&config).await?;
     Ok(Json(models))
+}
+
+/// Read here, not proposed as an addition — Next Action already reads/writes it directly via
+/// the generic file endpoints (see app/src/main.ts's STATUS_FILE_NAME), this just needs the
+/// same well-known name to fold it into the suggestion prompt.
+const STATUS_FILE_NAME: &str = "status.md";
+
+/// Caps how many backlog notes get read per suggestion request — a personal vault's backlog is
+/// expected to stay well under this, and it bounds both the I/O here and the prompt built from
+/// it (see ai::MAX_NOTE_CHARS_IN_PROMPT for the per-note cap).
+const MAX_BACKLOG_NOTES_FOR_SUGGESTION: usize = 30;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SuggestNextActionRequest {
+    /// Suggestions already shown and rejected this Next Action session — passed back so the
+    /// prompt can explicitly steer away from repeating them (see ai::build_suggestion_prompt).
+    #[serde(default)]
+    excluded_suggestions: Vec<String>,
+}
+
+async fn suggest_next_action(
+    State(repository): State<SharedRepository>,
+    State(ai_config): State<SharedAiConfig>,
+    Json(body): Json<SuggestNextActionRequest>,
+) -> Result<Json<NextActionSuggestion>, RepoError> {
+    let config = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    let config = config.ok_or(RepoError::AiNotConfigured)?;
+
+    let (status, backlog_notes) = with_repository(repository, move |repo| {
+        let status_path = format!("{}/{STATUS_FILE_NAME}", repo.subfolder());
+        // No status set yet is not an error here — the suggestion just proceeds without one,
+        // same quiet-fallback treatment the frontend gives a missing status file.
+        let status = repo.read_file(&status_path).ok();
+
+        let backlog_prefix = format!("{}/backlog/", repo.subfolder());
+        let backlog_paths: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&backlog_prefix) && path.ends_with(".md"))
+            .take(MAX_BACKLOG_NOTES_FOR_SUGGESTION)
+            .collect();
+        let backlog_notes: Vec<BacklogNote> = backlog_paths
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some(BacklogNote { path, content })
+            })
+            .collect();
+
+        Ok((status, backlog_notes))
+    })
+    .await?;
+
+    let suggestion =
+        crate::ai::suggest_next_action(status.as_deref(), &backlog_notes, &body.excluded_suggestions, &config).await?;
+    Ok(Json(suggestion))
 }
 
 #[cfg(test)]
@@ -501,6 +562,26 @@ mod tests {
                     .uri("/api/ai/classify")
                     .header("content-type", "application/json")
                     .body(Body::from(serde_json::to_vec(&serde_json::json!({ "text": "buy milk" })).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn suggest_next_action_without_a_configured_provider_is_a_client_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/ai/suggest-next-action")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&serde_json::json!({})).unwrap()))
                     .unwrap(),
             )
             .await

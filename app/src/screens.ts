@@ -92,6 +92,9 @@ type NextActionScreenState = {
   editLabel: string;
   editTaskPath: string;
   taskPathSuggestions: string[];
+  suggestion: string | null;
+  todayPlan: string[];
+  aiConfigured: boolean;
   isBusy: boolean;
   busyLabel: string;
   statusMessage: string;
@@ -106,6 +109,9 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
     editLabel: '',
     editTaskPath: '',
     taskPathSuggestions: [],
+    suggestion: null,
+    todayPlan: [],
+    aiConfigured: false,
     isBusy: false,
     busyLabel: '',
     statusMessage: '',
@@ -174,9 +180,36 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
     `
     : '';
 
+  const suggestionCardHtml = viewState.suggestion
+    ? `
+      <article class="card suggestion-card">
+        <div class="suggestion-tag">Next todo — needs your confirmation</div>
+        <p class="suggestion-text">${escapeHtml(viewState.suggestion)}</p>
+        <div class="button-row">
+          <button class="primary-button" id="suggestion-confirm-button" ${viewState.isBusy ? 'disabled' : ''}>Confirm</button>
+          <button class="secondary-button" id="suggestion-another-button" ${viewState.isBusy ? 'disabled' : ''}>Suggest something else</button>
+        </div>
+      </article>
+    `
+    : `
+      <article class="card suggestion-card">
+        <button
+          class="secondary-button"
+          id="suggestion-request-button"
+          ${viewState.isBusy || !viewState.aiConfigured ? 'disabled' : ''}
+          title="${viewState.aiConfigured ? '' : 'Configure an AI provider in Settings first'}"
+        >Suggest something to do next</button>
+      </article>
+    `;
+
+  const todayPlanHtml =
+    viewState.todayPlan.length > 0
+      ? `<ul class="plan-list">${viewState.todayPlan.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+      : '<p class="empty-state">Nothing confirmed yet today.</p>';
+
   return `
     <h1 class="title">${TITLES['next-action']}</h1>
-    <p class="placeholder">Your current status, and — soon — what the AI suggests doing about it.</p>
+    <p class="placeholder">Your current status, and what the AI suggests doing about it.</p>
     ${
       viewState.isBusy
         ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
@@ -204,6 +237,9 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
       }
     </div>
     ${editCardHtml}
+    ${suggestionCardHtml}
+    <h2 class="section-title next-action-plan-title">Today's plan</h2>
+    ${todayPlanHtml}
   `;
 }
 

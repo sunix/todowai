@@ -215,22 +215,107 @@ fn resolve_base_url(config: &AiConfig, default_base_url: &str) -> String {
 
 pub async fn classify(text: &str, config: &AiConfig) -> Result<AiClassification, AiError> {
     let prompt = build_prompt(text);
-    let raw = match config.provider {
-        AiProvider::Anthropic => classify_via_anthropic(&prompt, config).await?,
-        AiProvider::Openai => classify_via_openai_compatible(&prompt, config, "https://api.openai.com/v1").await?,
-        AiProvider::Gemini => {
-            classify_via_openai_compatible(&prompt, config, "https://generativelanguage.googleapis.com/v1beta/openai").await?
-        }
-        AiProvider::Mistral => classify_via_openai_compatible(&prompt, config, "https://api.mistral.ai/v1").await?,
-        AiProvider::Groq => classify_via_openai_compatible(&prompt, config, "https://api.groq.com/openai/v1").await?,
-        AiProvider::Ollama => classify_via_openai_compatible(&prompt, config, "http://localhost:11434/v1").await?,
-    };
+    let raw = complete(&prompt, config).await?;
     parse_classification(&raw)
+}
+
+/// A single note considered for a next-action suggestion — just enough to describe it in a
+/// prompt, not the full Snapshot shape the rest of the app uses.
+pub struct BacklogNote {
+    pub path: String,
+    pub content: String,
+}
+
+/// Mirrors AiClassification's role: what the AI proposes, kept separate from anything actually
+/// being written — Next Action's "Confirm" step (not this call) is what makes it real, matching
+/// the confirm-first pattern used everywhere else AI touches the vault.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NextActionSuggestion {
+    pub suggestion: String,
+}
+
+/// Truncated per note (not the whole prompt) so one runaway-long backlog item can't crowd out
+/// every other candidate the AI should be considering.
+const MAX_NOTE_CHARS_IN_PROMPT: usize = 500;
+
+fn truncate_for_prompt(content: &str) -> String {
+    let trimmed = content.trim();
+    if trimmed.chars().count() <= MAX_NOTE_CHARS_IN_PROMPT {
+        return trimmed.to_string();
+    }
+    let truncated: String = trimmed.chars().take(MAX_NOTE_CHARS_IN_PROMPT).collect();
+    format!("{truncated}…")
+}
+
+fn build_suggestion_prompt(status: Option<&str>, backlog_notes: &[BacklogNote], excluded_suggestions: &[String]) -> String {
+    let mut prompt = String::from(
+        "You are helping a user decide what to do next, based on their current status and their backlog notes.\n\n",
+    );
+
+    match status {
+        Some(status) if !status.trim().is_empty() => prompt.push_str(&format!("Current status: {status}\n\n")),
+        _ => prompt.push_str("Current status: not set\n\n"),
+    }
+
+    if backlog_notes.is_empty() {
+        prompt.push_str("Backlog notes: (none)\n\n");
+    } else {
+        prompt.push_str("Backlog notes:\n");
+        for note in backlog_notes {
+            prompt.push_str(&format!("- {}:\n{}\n\n", note.path, truncate_for_prompt(&note.content)));
+        }
+    }
+
+    if !excluded_suggestions.is_empty() {
+        prompt.push_str("Already suggested and rejected this session — propose something different:\n");
+        for item in excluded_suggestions {
+            prompt.push_str(&format!("- {item}\n"));
+        }
+        prompt.push('\n');
+    }
+
+    prompt.push_str(
+        "Respond with ONLY a single JSON object, no other text, no markdown code fences, matching exactly this shape:\n\
+         {\"suggestion\": \"a short, concrete next action, phrased as something to do right now\"}\n\n\
+         Prefer picking something grounded in one of the backlog notes above when one fits well; only propose \
+         something else if nothing in the backlog fits.",
+    );
+
+    prompt
+}
+
+pub async fn suggest_next_action(
+    status: Option<&str>,
+    backlog_notes: &[BacklogNote],
+    excluded_suggestions: &[String],
+    config: &AiConfig,
+) -> Result<NextActionSuggestion, AiError> {
+    let prompt = build_suggestion_prompt(status, backlog_notes, excluded_suggestions);
+    let raw = complete(&prompt, config).await?;
+    parse_suggestion(&raw)
+}
+
+/// Provider dispatch shared by every prompt-and-parse-JSON call this module makes (classify,
+/// suggest_next_action, and any future one) — the underlying adapters just send a prompt and
+/// hand back raw text; what the prompt asks for and how the response is parsed is the caller's
+/// concern, not this dispatch's.
+async fn complete(prompt: &str, config: &AiConfig) -> Result<String, AiError> {
+    match config.provider {
+        AiProvider::Anthropic => complete_via_anthropic(prompt, config).await,
+        AiProvider::Openai => complete_via_openai_compatible(prompt, config, "https://api.openai.com/v1").await,
+        AiProvider::Gemini => {
+            complete_via_openai_compatible(prompt, config, "https://generativelanguage.googleapis.com/v1beta/openai").await
+        }
+        AiProvider::Mistral => complete_via_openai_compatible(prompt, config, "https://api.mistral.ai/v1").await,
+        AiProvider::Groq => complete_via_openai_compatible(prompt, config, "https://api.groq.com/openai/v1").await,
+        AiProvider::Ollama => complete_via_openai_compatible(prompt, config, "http://localhost:11434/v1").await,
+    }
 }
 
 /// Native Anthropic Messages API — kept separate from the OpenAI-compatible adapter since its
 /// request/response shape (and refusal handling) differ from every other provider here.
-async fn classify_via_anthropic(prompt: &str, config: &AiConfig) -> Result<String, AiError> {
+async fn complete_via_anthropic(prompt: &str, config: &AiConfig) -> Result<String, AiError> {
     let model = config.model.clone().unwrap_or_else(|| "claude-opus-5".to_string());
     let client = reqwest::Client::new();
 
@@ -287,7 +372,7 @@ async fn classify_via_anthropic(prompt: &str, config: &AiConfig) -> Result<Strin
 /// Covers OpenAI, Google Gemini (via its OpenAI-compatible endpoint), Mistral, Groq, and Ollama
 /// (local) — all speak the same `/chat/completions` request/response shape, differing only in
 /// base URL and whether an API key is required at all (Ollama needs none).
-async fn classify_via_openai_compatible(prompt: &str, config: &AiConfig, default_base_url: &str) -> Result<String, AiError> {
+async fn complete_via_openai_compatible(prompt: &str, config: &AiConfig, default_base_url: &str) -> Result<String, AiError> {
     let model = config
         .model
         .clone()
@@ -340,7 +425,7 @@ async fn classify_via_openai_compatible(prompt: &str, config: &AiConfig, default
 
 /// Models often wrap JSON in a markdown code fence despite being asked not to — strip one if
 /// present rather than failing outright.
-fn parse_classification(raw: &str) -> Result<AiClassification, AiError> {
+fn strip_json_fence(raw: &str) -> &str {
     let mut text = raw.trim();
     if let Some(rest) = text.strip_prefix("```json") {
         text = rest.trim();
@@ -350,8 +435,16 @@ fn parse_classification(raw: &str) -> Result<AiClassification, AiError> {
     if let Some(rest) = text.strip_suffix("```") {
         text = rest.trim();
     }
+    text
+}
 
-    serde_json::from_str(text)
+fn parse_classification(raw: &str) -> Result<AiClassification, AiError> {
+    serde_json::from_str(strip_json_fence(raw))
+        .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))
+}
+
+fn parse_suggestion(raw: &str) -> Result<NextActionSuggestion, AiError> {
+    serde_json::from_str(strip_json_fence(raw))
         .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))
 }
 
@@ -398,5 +491,57 @@ mod tests {
     fn extract_model_ids_defaults_to_empty_on_an_unexpected_shape() {
         let response = serde_json::json!({ "unexpected": true });
         assert!(extract_model_ids(&response).is_empty());
+    }
+
+    #[test]
+    fn parse_suggestion_accepts_plain_json() {
+        let result = parse_suggestion(r#"{"suggestion": "Write the Q3 report"}"#).unwrap();
+        assert_eq!(result.suggestion, "Write the Q3 report");
+    }
+
+    #[test]
+    fn parse_suggestion_strips_markdown_fences() {
+        let raw = "```json\n{\"suggestion\": \"Fix the login bug\"}\n```";
+        assert_eq!(parse_suggestion(raw).unwrap().suggestion, "Fix the login bug");
+    }
+
+    #[test]
+    fn suggestion_prompt_reports_no_status_when_unset() {
+        let prompt = build_suggestion_prompt(None, &[], &[]);
+        assert!(prompt.contains("Current status: not set"));
+        assert!(prompt.contains("Backlog notes: (none)"));
+    }
+
+    #[test]
+    fn suggestion_prompt_includes_status_and_backlog_notes() {
+        let notes = [BacklogNote {
+            path: "todowai/backlog/write-report.md".to_string(),
+            content: "---\ntype: todo\nstatus: backlog\n---\n\nWrite the Q3 report.".to_string(),
+        }];
+        let prompt = build_suggestion_prompt(Some("Coffee break"), &notes, &[]);
+        assert!(prompt.contains("Current status: Coffee break"));
+        assert!(prompt.contains("todowai/backlog/write-report.md"));
+        assert!(prompt.contains("Write the Q3 report."));
+    }
+
+    #[test]
+    fn suggestion_prompt_lists_excluded_suggestions_to_avoid_repeats() {
+        let excluded = vec!["Write the Q3 report".to_string()];
+        let prompt = build_suggestion_prompt(None, &[], &excluded);
+        assert!(prompt.contains("Write the Q3 report"));
+        assert!(prompt.contains("propose something different"));
+    }
+
+    #[test]
+    fn truncate_for_prompt_leaves_short_content_untouched() {
+        assert_eq!(truncate_for_prompt("short note"), "short note");
+    }
+
+    #[test]
+    fn truncate_for_prompt_caps_long_content() {
+        let long_content = "a".repeat(MAX_NOTE_CHARS_IN_PROMPT + 100);
+        let truncated = truncate_for_prompt(&long_content);
+        assert_eq!(truncated.chars().count(), MAX_NOTE_CHARS_IN_PROMPT + 1); // +1 for the "…" marker
+        assert!(truncated.ends_with('…'));
     }
 }

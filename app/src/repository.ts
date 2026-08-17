@@ -242,3 +242,18 @@ export async function classifyCapture(text: string): Promise<AiClassification> {
 export async function fetchAiModels(): Promise<string[]> {
   return requestJson<string[]>('/ai/models');
 }
+
+export type NextActionSuggestion = {
+  suggestion: string;
+};
+
+// excludedSuggestions carries whatever's already been shown and rejected this Next Action
+// session, so the backend can steer the model away from repeating them — see backend/src/ai.rs's
+// build_suggestion_prompt.
+export async function suggestNextAction(excludedSuggestions: string[]): Promise<NextActionSuggestion> {
+  return requestJson<NextActionSuggestion>('/ai/suggest-next-action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ excludedSuggestions }),
+  });
+}
