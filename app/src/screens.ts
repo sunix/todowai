@@ -43,6 +43,132 @@ export function renderScreen(screen: ScreenId): string {
   `;
 }
 
+// The single, persistent "what am I doing right now" value (specification/specs.md) — distinct
+// from Capture's "status" note type, which files a discrete, never-overwritten journal entry
+// each time. This is the opposite: one well-known file (`<subfolder>/status.md`), always
+// overwritten in place, synced like any other vault file so it's the same on every device.
+export type CurrentStatus =
+  | { kind: 'situational'; label: string }
+  | { kind: 'task'; label: string; taskPath: string };
+
+type NextActionScreenState = {
+  status: CurrentStatus | null;
+  isEditing: boolean;
+  editKind: CurrentStatus['kind'];
+  editLabel: string;
+  editTaskPath: string;
+  taskPathSuggestions: string[];
+  isBusy: boolean;
+  busyLabel: string;
+  statusMessage: string;
+  errorMessage: string;
+};
+
+export function renderNextActionScreen(state?: NextActionScreenState): string {
+  const viewState = state ?? {
+    status: null,
+    isEditing: false,
+    editKind: 'situational' as const,
+    editLabel: '',
+    editTaskPath: '',
+    taskPathSuggestions: [],
+    isBusy: false,
+    busyLabel: '',
+    statusMessage: '',
+    errorMessage: '',
+  };
+
+  const statusValueHtml = viewState.status
+    ? viewState.status.kind === 'task'
+      ? `Working on: ${escapeHtml(viewState.status.label)}`
+      : escapeHtml(viewState.status.label)
+    : 'No status set yet';
+
+  const editFieldsHtml =
+    viewState.editKind === 'situational'
+      ? `
+        <label class="field-label" for="status-label">What are you doing?</label>
+        <input
+          class="text-input"
+          id="status-label"
+          value="${escapeHtmlAttribute(viewState.editLabel)}"
+          placeholder="e.g. Coffee break, taking the metro…"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+      `
+      : `
+        <label class="field-label" for="status-task-path">Task note</label>
+        <input
+          class="text-input"
+          id="status-task-path"
+          list="status-task-suggestions"
+          value="${escapeHtmlAttribute(viewState.editTaskPath)}"
+          placeholder="e.g. ${escapeHtmlAttribute(viewState.taskPathSuggestions[0] ?? 'todowai/backlog/my-task.md')}"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+        <datalist id="status-task-suggestions">
+          ${viewState.taskPathSuggestions.map((path) => `<option value="${escapeHtmlAttribute(path)}"></option>`).join('')}
+        </datalist>
+        <label class="field-label" for="status-label">Description (optional)</label>
+        <input
+          class="text-input"
+          id="status-label"
+          value="${escapeHtmlAttribute(viewState.editLabel)}"
+          placeholder="Defaults to the task note's file name"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+      `;
+
+  const editCardHtml = viewState.isEditing
+    ? `
+      <article class="card status-edit-card">
+        <label class="field-label" for="status-kind">Kind</label>
+        <select class="text-input" id="status-kind" ${viewState.isBusy ? 'disabled' : ''}>
+          <option value="situational" ${viewState.editKind === 'situational' ? 'selected' : ''}>Situational context</option>
+          <option value="task" ${viewState.editKind === 'task' ? 'selected' : ''}>Task</option>
+        </select>
+        ${editFieldsHtml}
+        <div class="button-row">
+          <button class="primary-button" id="status-save-button" ${viewState.isBusy ? 'disabled' : ''}>Save status</button>
+          <button class="secondary-button" id="status-cancel-button" ${viewState.isBusy ? 'disabled' : ''}>Cancel</button>
+        </div>
+      </article>
+    `
+    : '';
+
+  return `
+    <h1 class="title">${TITLES['next-action']}</h1>
+    <p class="placeholder">Your current status, and — soon — what the AI suggests doing about it.</p>
+    ${
+      viewState.isBusy
+        ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
+        : ''
+    }
+    ${
+      viewState.statusMessage
+        ? `<p class="status-message" role="status">${escapeHtml(viewState.statusMessage)}</p>`
+        : ''
+    }
+    ${
+      viewState.errorMessage
+        ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
+        : ''
+    }
+    <div class="card status-card">
+      <div>
+        <div class="status-card-label">Current status</div>
+        <div class="status-card-value">${statusValueHtml}</div>
+      </div>
+      ${
+        !viewState.isEditing
+          ? `<button class="secondary-button" id="status-change-button" ${viewState.isBusy ? 'disabled' : ''}>Change status</button>`
+          : ''
+      }
+    </div>
+    ${editCardHtml}
+  `;
+}
+
 // A captured note isn't written to the vault at all — per specification/specs.md, it stays an
 // editable draft (kept only in the browser, see main.ts's localStorage-backed persistence) until
 // the user explicitly files it into the Notebook (this manual path is #16; an AI-proposed one is

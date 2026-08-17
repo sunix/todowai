@@ -23,16 +23,18 @@ import {
   type ConflictSide,
   type SyncStatus,
 } from './repository';
-import { parseFrontmatter, serializeFrontmatter, setFrontmatterValue } from './frontmatter';
+import { getFrontmatterValue, parseFrontmatter, serializeFrontmatter, setFrontmatterValue } from './frontmatter';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import {
   escapeHtml,
   renderCaptureScreen,
+  renderNextActionScreen,
   renderNotebookScreen,
   renderScreen,
   renderSettingsScreen,
   type CaptureDraft,
   type CapturedNote,
+  type CurrentStatus,
   type DraftType,
 } from './screens';
 
@@ -120,6 +122,15 @@ type AppState = {
   aiModel: string;
   aiBaseUrl: string;
   aiModels: string[];
+  // The persistent current-status field (#19) — null until the user sets one for the first
+  // time. isEditingStatus/statusEditKind/statusEditLabel/statusEditTaskPath are the in-progress
+  // "Change status" form fields, separate from the saved value so opening the form to look at
+  // it (or cancelling) never touches what's actually persisted.
+  currentStatus: CurrentStatus | null;
+  isEditingStatus: boolean;
+  statusEditKind: CurrentStatus['kind'];
+  statusEditLabel: string;
+  statusEditTaskPath: string;
 };
 
 const state: AppState = {
@@ -160,6 +171,11 @@ const state: AppState = {
   aiModel: '',
   aiBaseUrl: '',
   aiModels: [],
+  currentStatus: null,
+  isEditingStatus: false,
+  statusEditKind: 'situational',
+  statusEditLabel: '',
+  statusEditTaskPath: '',
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -226,7 +242,20 @@ function render(): void {
               errorMessage: state.errorMessage,
               aiConfigured: state.aiConfig.configured,
             })
-          : renderScreen(screen);
+          : screen === 'next-action'
+            ? renderNextActionScreen({
+                status: state.currentStatus,
+                isEditing: state.isEditingStatus,
+                editKind: state.statusEditKind,
+                editLabel: state.statusEditLabel,
+                editTaskPath: state.statusEditTaskPath,
+                taskPathSuggestions: taskPathSuggestions(state.files, state.subfolder),
+                isBusy: state.isBusy,
+                busyLabel: state.busyLabel,
+                statusMessage: state.statusMessage,
+                errorMessage: state.errorMessage,
+              })
+            : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -237,6 +266,8 @@ function render(): void {
     bindNotebookScreen();
   } else if (screen === 'capture') {
     bindCaptureScreen();
+  } else if (screen === 'next-action') {
+    bindNextActionScreen();
   }
 }
 
@@ -275,7 +306,9 @@ renderSyncIndicator();
 // There's nothing to "open" any more — the backend already owns the vault (mounted via Docker
 // at startup) — so this loads automatically once on startup, rather than waiting for a picker
 // button click like the superseded browser-only flow did.
-void loadSnapshot('Connecting to backend…');
+// Chained rather than fired in parallel — state.subfolder (needed to build the status file's
+// path) is only known once the snapshot resolves.
+void loadSnapshot('Connecting to backend…').then(() => refreshCurrentStatus());
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
 // change, so a single fetch on startup is enough — no need to re-poll like sync status does.
@@ -757,6 +790,133 @@ function uniqueFilePath(existingFiles: string[], folder: string, slug: string): 
     suffix += 1;
   }
   return candidate;
+}
+
+const STATUS_FILE_NAME = 'status.md';
+
+function statusFilePath(subfolder: string): string {
+  return `${subfolder}/${STATUS_FILE_NAME}`;
+}
+
+// backlog/doing only — a note already marked done isn't a sensible "what I'm doing right now"
+// target. Just a suggestion list (the field stays free text, see renderNextActionScreen's
+// <datalist>), so this doesn't need to read file contents to confirm each candidate is actually
+// a `type: todo` note.
+function taskPathSuggestions(files: string[], subfolder: string): string[] {
+  return files.filter(
+    (path) =>
+      (path.startsWith(`${subfolder}/backlog/`) || path.startsWith(`${subfolder}/doing/`)) && path.endsWith('.md')
+  );
+}
+
+function taskLabelFallback(taskPath: string): string {
+  return (taskPath.split('/').pop() ?? taskPath).replace(/\.md$/, '');
+}
+
+// `kind: situational` or `kind: task` (plus `task: <path>` when linked) in the frontmatter,
+// free-text label as the body — built on #18's shared parser. Malformed/unrecognized content
+// (e.g. a `kind` that isn't one of the two known values) is treated the same as "not set yet"
+// rather than crashing Next Action.
+function parseStatus(content: string): CurrentStatus | null {
+  const { frontmatter, body } = parseFrontmatter(content);
+  const kind = getFrontmatterValue(frontmatter, 'kind');
+  const label = body.trim();
+  if (kind === 'situational') {
+    return { kind: 'situational', label };
+  }
+  if (kind === 'task') {
+    const taskPath = getFrontmatterValue(frontmatter, 'task');
+    if (typeof taskPath === 'string' && taskPath) {
+      return { kind: 'task', label, taskPath };
+    }
+  }
+  return null;
+}
+
+function serializeStatus(status: CurrentStatus): string {
+  const frontmatter: Array<[string, string]> =
+    status.kind === 'task'
+      ? [
+          ['kind', 'task'],
+          ['task', status.taskPath],
+        ]
+      : [['kind', 'situational']];
+  return serializeFrontmatter({ frontmatter, body: status.label });
+}
+
+async function refreshCurrentStatus(): Promise<void> {
+  try {
+    const content = await readFile(statusFilePath(state.subfolder));
+    state.currentStatus = parseStatus(content);
+  } catch {
+    // No status set yet (fresh vault) or the backend couldn't be reached — Next Action just
+    // shows the empty state, the same quiet-fallback pattern as configuredRemotes/aiConfig.
+    state.currentStatus = null;
+  }
+  render();
+}
+
+function bindNextActionScreen(): void {
+  main.querySelector<HTMLButtonElement>('#status-change-button')?.addEventListener('click', () => {
+    const current = state.currentStatus;
+    state.statusEditKind = current?.kind ?? 'situational';
+    state.statusEditLabel = current?.label ?? '';
+    state.statusEditTaskPath = current?.kind === 'task' ? current.taskPath : '';
+    state.isEditingStatus = true;
+    render();
+  });
+
+  main.querySelector<HTMLButtonElement>('#status-cancel-button')?.addEventListener('click', () => {
+    state.isEditingStatus = false;
+    render();
+  });
+
+  // Clears the label rather than carrying it across — the same input means different things
+  // per kind (the whole status for situational, an optional override for task), so leaving
+  // e.g. "Coffee break" behind after switching to Task would silently become that task's
+  // description instead of falling back to its file name.
+  main.querySelector<HTMLSelectElement>('#status-kind')?.addEventListener('change', (event) => {
+    state.statusEditKind = (event.target as HTMLSelectElement).value as CurrentStatus['kind'];
+    state.statusEditLabel = '';
+    render();
+  });
+
+  main.querySelector<HTMLInputElement>('#status-label')?.addEventListener('input', (event) => {
+    state.statusEditLabel = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLInputElement>('#status-task-path')?.addEventListener('input', (event) => {
+    state.statusEditTaskPath = (event.target as HTMLInputElement).value;
+  });
+
+  main.querySelector<HTMLButtonElement>('#status-save-button')?.addEventListener('click', async () => {
+    const kind = state.statusEditKind;
+    const label = state.statusEditLabel.trim();
+    const taskPath = state.statusEditTaskPath.trim();
+
+    if (kind === 'situational' && !label) {
+      state.errorMessage = 'Enter what you are doing before saving.';
+      render();
+      return;
+    }
+    if (kind === 'task' && !taskPath) {
+      state.errorMessage = 'Enter or pick a task note before saving.';
+      render();
+      return;
+    }
+
+    const status: CurrentStatus =
+      kind === 'task' ? { kind: 'task', taskPath, label: label || taskLabelFallback(taskPath) } : { kind: 'situational', label };
+
+    await runRepositoryAction('Saving status…', async () => {
+      const snapshot = await writeFile(statusFilePath(state.subfolder), serializeStatus(status));
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.currentStatus = status;
+      state.isEditingStatus = false;
+      state.statusMessage = 'Status updated.';
+    });
+  });
 }
 
 function bindCaptureScreen(): void {

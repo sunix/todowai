@@ -298,6 +298,29 @@ main {
   margin-top: 16px;
 }
 
+.status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.status-card-label {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-card-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status-edit-card {
+  margin-top: 16px;
+}
+
 .file-list {
   max-height: 280px;
   overflow: auto;
