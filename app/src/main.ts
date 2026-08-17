@@ -721,6 +721,16 @@ function defaultDraftContent(type: DraftType, captureText: string): string {
   return `---\ntype: ${type}\nstatus: backlog\n---\n\n${captureText}`;
 }
 
+// Local date, not UTC — a capture's "day" should match what the user experienced, not shift
+// across midnight depending on timezone. Matches the mockup's own note-naming convention
+// (e.g. `2026-08-10-shipped-spec-pr.md`, `2026-08-11-conversation.md`).
+function dateStamp(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function slugifyTitle(title: string): string {
   const slug = title
     .trim()
@@ -835,7 +845,12 @@ function bindCaptureScreen(): void {
     const content = contentInput.value;
 
     await runRepositoryAction('Saving to Notebook…', async () => {
-      const path = uniqueFilePath(state.files, `${state.subfolder}/backlog`, slugifyTitle(title));
+      // Dated by when the thing was captured, not when it happened to get filed — a status
+      // jotted down at 9am and filed at 6pm is still a 9am status.
+      const capture = state.captures.find((entry) => entry.id === draft.captureId);
+      const capturedAt = capture ? new Date(capture.capturedAt) : new Date();
+      const slug = `${dateStamp(capturedAt)}-${slugifyTitle(title)}`;
+      const path = uniqueFilePath(state.files, `${state.subfolder}/backlog`, slug);
       const snapshot = await writeFile(path, content);
       state.files = snapshot.files;
       state.pendingChanges = snapshot.pendingChanges;
