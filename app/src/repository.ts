@@ -201,10 +201,21 @@ export type AiConfigInput = {
   baseUrl: string;
 };
 
-export type AiClassification = {
-  type: 'todo' | 'meeting' | 'status' | 'project';
-  title: string;
-  content: string;
+// Either a brand-new note (the original #17 shape — type/title/content) or attaching to an
+// existing note instead (#99): adding a new task, checking off one the capture indicates is now
+// resolved, or appending free text to a note with no checklist. Every action-specific field is
+// optional since only a subset applies to any one action; main.ts switches on `action` (and
+// `operation` for attachments) to know which to read.
+export type CaptureProposal = {
+  action: 'new_note' | 'attach_existing';
+  type?: 'todo' | 'meeting' | 'status' | 'project';
+  title?: string;
+  content?: string;
+  path?: string;
+  operation?: 'add_task' | 'check_task' | 'append_text';
+  taskText?: string;
+  taskIndex?: number;
+  text?: string;
 };
 
 export async function fetchAiConfig(): Promise<AiConfigView> {
@@ -229,8 +240,8 @@ export async function setAiConfig(config: AiConfigInput | null): Promise<AiConfi
   });
 }
 
-export async function classifyCapture(text: string): Promise<AiClassification> {
-  return requestJson<AiClassification>('/ai/classify', {
+export async function classifyCapture(text: string): Promise<CaptureProposal> {
+  return requestJson<CaptureProposal>('/ai/classify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),

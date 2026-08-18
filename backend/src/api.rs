@@ -5,7 +5,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use crate::ai::{AiClassification, AiConfig, AiConfigView, BacklogNote, NextActionSuggestion};
+use crate::ai::{AiConfig, AiConfigView, BacklogNote, CaptureProposal, ExistingNote, NextActionSuggestion};
 use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
 use crate::projects::Project;
@@ -283,17 +283,43 @@ struct ClassifyRequest {
     text: String,
 }
 
+/// Bounds how many notes get offered as attachment candidates — generous enough for a personal
+/// vault's active set, still a defensive limit on both the I/O here and the prompt built from it
+/// (see ai::MAX_EXISTING_NOTE_CHARS_IN_PROMPT for the per-note cap).
+const MAX_EXISTING_NOTES_FOR_CAPTURE: usize = 30;
+
 async fn classify_capture(
+    State(repository): State<SharedRepository>,
     State(ai_config): State<SharedAiConfig>,
     Json(body): Json<ClassifyRequest>,
-) -> Result<Json<AiClassification>, RepoError> {
+) -> Result<Json<CaptureProposal>, RepoError> {
     let config = {
         let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clone()
     };
     let config = config.ok_or(RepoError::AiNotConfigured)?;
-    let classification = crate::ai::classify(&body.text, &config).await?;
-    Ok(Json(classification))
+
+    let existing_notes: Vec<ExistingNote> = with_repository(repository, |repo| {
+        let prefix = format!("{}/", repo.subfolder());
+        let candidates: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&prefix) && path.ends_with(".md"))
+            .take(MAX_EXISTING_NOTES_FOR_CAPTURE)
+            .collect();
+        let notes = candidates
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some(ExistingNote { path, content })
+            })
+            .collect();
+        Ok(notes)
+    })
+    .await?;
+
+    let proposal = crate::ai::propose_capture_filing(&body.text, &existing_notes, &config).await?;
+    Ok(Json(proposal))
 }
 
 /// Backs the Model field's suggestion dropdown in Settings — queries the *saved* config's

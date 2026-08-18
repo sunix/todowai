@@ -38,6 +38,8 @@ import {
   renderProjectsScreen,
   renderScreen,
   renderSettingsScreen,
+  type AttachDraft,
+  type AttachOperation,
   type CalendarFeed,
   type CaptureDraft,
   type CapturedNote,
@@ -123,6 +125,10 @@ type AppState = {
   conflictChoices: Record<string, ConflictSide>;
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  // The alternative AI-proposed outcome (#99): attaching to an existing note instead of filing
+  // a new one. Mutually exclusive with `draft` — only "Let AI propose" can produce this (manual
+  // filing via "File it myself" always creates a new note, unchanged from #16).
+  attachDraft: AttachDraft | null;
   aiConfig: AiConfigView;
   aiProvider: AiProvider;
   aiApiKey: string;
@@ -189,6 +195,7 @@ const state: AppState = {
   conflictChoices: {},
   captures: loadCaptures(),
   draft: null,
+  attachDraft: null,
   aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
   aiProvider: 'anthropic',
   aiApiKey: '',
@@ -267,6 +274,8 @@ function render(): void {
           ? renderCaptureScreen({
               captures: state.captures,
               draft: state.draft,
+              attachDraft: state.attachDraft,
+              notePaths: allNotePaths(state.files, state.subfolder),
               isBusy: state.isBusy,
               busyLabel: state.busyLabel,
               statusMessage: state.statusMessage,
@@ -906,6 +915,13 @@ function taskPathSuggestions(files: string[], subfolder: string): string[] {
   );
 }
 
+// Every note inside the subfolder, any status folder — the AI-proposed attach target (#99) can
+// be any existing note, not just a project or an active task.
+function allNotePaths(files: string[], subfolder: string): string[] {
+  const prefix = `${subfolder}/`;
+  return files.filter((path) => path.startsWith(prefix) && path.endsWith('.md'));
+}
+
 function taskLabelFallback(taskPath: string): string {
   return (taskPath.split('/').pop() ?? taskPath).replace(/\.md$/, '');
 }
@@ -1060,6 +1076,25 @@ function toggleTaskLine(content: string, taskIndex: number): string {
     }
     const isDone = match[2].toLowerCase() === 'x';
     return `${match[1]}${isDone ? ' ' : 'x'}${match[3]}`;
+  });
+  return lines.join('\n');
+}
+
+// Unlike toggleTaskLine, always sets done (idempotent if already checked) rather than
+// flipping — an AI-proposed "check_task" (#99) means "mark this resolved," not "toggle it,"
+// since the AI never has a reason to propose un-checking something.
+function setTaskLineDoneAt(content: string, taskIndex: number): string {
+  let seen = -1;
+  const lines = content.split('\n').map((line) => {
+    const match = line.match(TASK_LINE_PATTERN);
+    if (!match) {
+      return line;
+    }
+    seen += 1;
+    if (seen !== taskIndex) {
+      return line;
+    }
+    return `${match[1]}x${match[3]}`;
   });
   return lines.join('\n');
 }
@@ -1238,6 +1273,7 @@ function bindCaptureScreen(): void {
         title: capture.text.slice(0, 48),
         content: defaultDraftContent(type, capture.text),
       };
+      state.attachDraft = null;
       render();
     });
   });
@@ -1252,12 +1288,26 @@ function bindCaptureScreen(): void {
 
       await runRepositoryAction('Asking AI to propose a draft…', async () => {
         const proposal = await classifyCapture(capture.text);
-        state.draft = {
-          captureId: capture.id,
-          type: proposal.type,
-          title: proposal.title,
-          content: proposal.content,
-        };
+        if (proposal.action === 'attach_existing' && proposal.path) {
+          state.attachDraft = {
+            captureId: capture.id,
+            path: proposal.path,
+            operation: proposal.operation ?? 'add_task',
+            taskText: proposal.taskText ?? capture.text,
+            taskIndex: proposal.taskIndex ?? 0,
+            text: proposal.text ?? capture.text,
+          };
+          state.draft = null;
+        } else {
+          const type = proposal.type ?? 'todo';
+          state.draft = {
+            captureId: capture.id,
+            type,
+            title: proposal.title ?? capture.text.slice(0, 48),
+            content: proposal.content ?? defaultDraftContent(type, capture.text),
+          };
+          state.attachDraft = null;
+        }
       });
     });
   });
@@ -1313,6 +1363,95 @@ function bindCaptureScreen(): void {
       state.selectedFilePath = path;
       state.selectedFileContent = content;
       state.statusMessage = `Saved to Notebook: ${path}.`;
+    });
+  });
+
+  main.querySelector<HTMLInputElement>('#attach-path')?.addEventListener('input', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, path: (event.target as HTMLInputElement).value };
+  });
+
+  // Changes which fields are shown, so this re-renders — unlike the plain text inputs below,
+  // which just keep state in sync without disturbing focus/cursor position.
+  main.querySelector<HTMLSelectElement>('#attach-operation')?.addEventListener('change', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, operation: (event.target as HTMLSelectElement).value as AttachOperation };
+    render();
+  });
+
+  main.querySelector<HTMLInputElement>('#attach-task-text')?.addEventListener('input', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, taskText: (event.target as HTMLInputElement).value };
+  });
+
+  main.querySelector<HTMLInputElement>('#attach-task-index')?.addEventListener('input', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    const value = Number((event.target as HTMLInputElement).value);
+    state.attachDraft = { ...state.attachDraft, taskIndex: Number.isFinite(value) ? value : 0 };
+  });
+
+  main.querySelector<HTMLTextAreaElement>('#attach-text')?.addEventListener('input', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, text: (event.target as HTMLTextAreaElement).value };
+  });
+
+  main.querySelector<HTMLButtonElement>('#attach-cancel-button')?.addEventListener('click', () => {
+    state.attachDraft = null;
+    render();
+  });
+
+  main.querySelector<HTMLButtonElement>('#attach-save-button')?.addEventListener('click', async () => {
+    const attachDraft = state.attachDraft;
+    if (!attachDraft) {
+      return;
+    }
+
+    if (!attachDraft.path.trim()) {
+      state.errorMessage = 'Enter or pick a note before confirming.';
+      render();
+      return;
+    }
+    if (attachDraft.operation === 'add_task' && !attachDraft.taskText.trim()) {
+      state.errorMessage = 'Enter the task text before confirming.';
+      render();
+      return;
+    }
+    if (attachDraft.operation === 'append_text' && !attachDraft.text.trim()) {
+      state.errorMessage = 'Enter the text before confirming.';
+      render();
+      return;
+    }
+
+    await runRepositoryAction('Updating note…', async () => {
+      const content = await readFile(attachDraft.path);
+      const separator = content.endsWith('\n') ? '' : '\n';
+      const updated =
+        attachDraft.operation === 'add_task'
+          ? `${content}${separator}- [ ] ${attachDraft.taskText.trim()}\n`
+          : attachDraft.operation === 'check_task'
+            ? setTaskLineDoneAt(content, attachDraft.taskIndex)
+            : `${content}${separator}${attachDraft.text.trim()}\n`;
+
+      const snapshot = await writeFile(attachDraft.path, updated);
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.captures = state.captures.filter((entry) => entry.id !== attachDraft.captureId);
+      saveCaptures(state.captures);
+      state.attachDraft = null;
+      // The target note's tasks/progress may have changed — refetch rather than let Projects
+      // drift stale until the next full snapshot load.
+      state.projects = await fetchProjects();
+      state.statusMessage = `Updated ${attachDraft.path}.`;
     });
   });
 }
