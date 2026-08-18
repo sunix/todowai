@@ -117,10 +117,10 @@ The moment-to-moment decision-support loop.
 
 Read-only awareness of what's already planned.
 
-- **Settings: multiple labeled calendar feed URLs** (S) — https://github.com/sunix/todowai/issues/22
-  Implement Settings UI to add, label, and remove one or more read-only calendar feed URLs (e.g. iCal links).
-  - [ ] User can add/remove/rename multiple feed entries
-  - [ ] Configuration persists in the synced repo (not just local device state)
+- **Settings: multiple labeled calendar feed URLs** (S) — https://github.com/sunix/todowai/issues/22 — *Merged (#91).*
+  Implement Settings UI to add, label, and remove one or more read-only calendar feed URLs (e.g. iCal links). Persisted as a plain JSON array at `<subfolder>/calendars.json` — a normal, synced vault file (not git-ignored like #89's credentials file, since a feed URL isn't a secret), reusing the existing generic read/write-file endpoints rather than new backend code.
+  - [x] User can add/remove/rename multiple feed entries
+  - [x] Configuration persists in the synced repo (not just local device state)
 
 - **ICS feed fetch + parse (read-only, multi-source)** (M) — https://github.com/sunix/todowai/issues/23
   Fetch and parse each configured calendar feed URL client-side (no OAuth, no write access) and merge events from all configured sources.
