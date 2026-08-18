@@ -137,10 +137,10 @@ Read-only awareness of what's already planned.
 
 Mid-to-long-range planning views.
 
-- **Projects view: tracking large tasks & delegated work** (M) — https://github.com/sunix/todowai/issues/25
-  Build the Projects screen: cards for large tasks, parallel work, and AI-delegated work, with status badges and progress indicators.
-  - [ ] Projects display status (e.g. blocked, in progress, AI-delegated) and progress
-  - [ ] An AI-delegated project links to its pending suggestions for review
+- **Projects view: tracking large tasks & delegated work** (M) — https://github.com/sunix/todowai/issues/25 — *Merged (#94).*
+  Build the Projects screen: cards for large tasks, parallel work, and AI-delegated work, with status badges and progress indicators. Scans notes for `type: project` frontmatter; read-only (editing happens via Notebook). Real usage immediately surfaced two follow-ups, tracked separately (not part of the original Phase 3 plan): [#95](https://github.com/sunix/todowai/issues/95) (task checklists with auto-derived progress) and [#96](https://github.com/sunix/todowai/issues/96) (attaching a capture to an existing project instead of always creating a new note).
+  - [x] Projects display status (e.g. blocked, in progress, AI-delegated) and progress
+  - [x] An AI-delegated project links to its pending suggestions for review
 
 - **Horizon view: week/month/year grouping with manual move** (M) — https://github.com/sunix/todowai/issues/26
   Build the Horizon screen: todos/projects grouped into This Week / This Month(s) / This Year columns, with a manual way to move an item between horizons.
