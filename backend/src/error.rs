@@ -7,6 +7,11 @@ use serde_json::json;
 pub enum RepoError {
     NotFound(String),
     InvalidPath(String),
+    /// The file exists but isn't valid UTF-8 text (e.g. an image or other binary file) — the
+    /// read/write-file endpoints only ever serve text, so this is the caller's mistake (picked
+    /// the wrong path), not a server fault. Distinguished from a generic Io error specifically
+    /// so it doesn't surface as a 500 with a raw Rust error string.
+    NotText(String),
     NothingToCommit,
     /// A resolve-conflict request that doesn't match the actual pending state (nothing to
     /// resolve, or it didn't cover every conflicted file) — a client mistake, not a git failure.
@@ -31,6 +36,7 @@ impl std::fmt::Display for RepoError {
         match self {
             RepoError::NotFound(path) => write!(f, "not found: {path}"),
             RepoError::InvalidPath(path) => write!(f, "invalid path: {path}"),
+            RepoError::NotText(path) => write!(f, "cannot read \"{path}\" as text (binary or non-UTF-8 file)"),
             RepoError::NothingToCommit => write!(f, "nothing to commit"),
             RepoError::ConflictResolutionFailed(message) => write!(f, "conflict resolution failed: {message}"),
             RepoError::AiNotConfigured => write!(f, "no AI provider is configured"),
@@ -72,6 +78,7 @@ impl IntoResponse for RepoError {
         let status = match &self {
             RepoError::NotFound(_) => StatusCode::NOT_FOUND,
             RepoError::InvalidPath(_) => StatusCode::BAD_REQUEST,
+            RepoError::NotText(_) => StatusCode::BAD_REQUEST,
             RepoError::NothingToCommit => StatusCode::BAD_REQUEST,
             RepoError::ConflictResolutionFailed(_) => StatusCode::BAD_REQUEST,
             RepoError::AiNotConfigured => StatusCode::BAD_REQUEST,
