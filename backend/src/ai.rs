@@ -79,15 +79,35 @@ impl AiConfigView {
     }
 }
 
-/// What the AI proposes for a captured note — mirrors the manual filing draft's shape (see
-/// app/src/screens.ts's CaptureDraft) so the frontend can reuse the same draft panel for both
-/// the manual and AI-proposed paths.
+/// What the AI proposes for a captured note — either a brand-new note (the original #17 shape:
+/// type/title/content, mirroring app/src/screens.ts's CaptureDraft) or attaching to an existing
+/// note instead (#99): adding a new task, checking off one the capture indicates is now
+/// resolved, or appending free text to a note with no checklist. Kept separate from anything
+/// actually being written — Capture's own confirm step (not this call) is what makes it real.
+/// Every action-specific field is optional since only a subset applies to any one action; the
+/// frontend switches on `action` (and `operation` for attachments) to know which to read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiClassification {
+pub struct CaptureProposal {
+    /// "new_note" | "attach_existing"
+    pub action: String,
     #[serde(rename = "type")]
-    pub note_type: String,
-    pub title: String,
+    pub note_type: Option<String>,
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub path: Option<String>,
+    /// "add_task" | "check_task" | "append_text"
+    pub operation: Option<String>,
+    pub task_text: Option<String>,
+    pub task_index: Option<usize>,
+    pub text: Option<String>,
+}
+
+/// A candidate note the AI can choose to attach a capture to — just enough for it to judge
+/// whether the capture matches, and (reading a project's raw checklist itself) which task index
+/// to check off.
+pub struct ExistingNote {
+    pub path: String,
     pub content: String,
 }
 
@@ -110,20 +130,53 @@ impl std::fmt::Display for AiError {
     }
 }
 
-const PROMPT_TEMPLATE: &str = r#"You are classifying a quickly captured note into a structured Todowai item.
+/// Truncated per candidate note, same rationale as MAX_NOTE_CHARS_IN_PROMPT for backlog notes in
+/// the suggestion prompt below — one long existing note shouldn't crowd out the others.
+const MAX_EXISTING_NOTE_CHARS_IN_PROMPT: usize = 500;
 
-Captured text:
-"""
-{TEXT}
-"""
+fn build_capture_prompt(text: &str, existing_notes: &[ExistingNote]) -> String {
+    let mut prompt = String::from(
+        "You are filing a quickly captured note into Todowai. Decide whether it should become a \
+         brand-new note, or be attached to one of the existing notes below instead — prefer \
+         attaching when the capture is clearly about the same subject as one of them, rather than \
+         creating a duplicate.\n\n",
+    );
 
-Respond with ONLY a single JSON object, no other text, no markdown code fences, matching exactly this shape:
-{"type": "todo | meeting | status | project", "title": "short descriptive title, under 60 characters", "content": "the note body, including a YAML frontmatter block (---\ntype: <type>\nstatus: backlog\n---\n\n) followed by the captured text, lightly cleaned up if it helps"}
+    prompt.push_str(&format!("Captured text:\n\"\"\"\n{text}\n\"\"\"\n\n"));
 
-Pick whichever type best fits the captured text. Keep the frontmatter's type field consistent with your chosen type."#;
+    if existing_notes.is_empty() {
+        prompt.push_str("Existing notes: (none)\n\n");
+    } else {
+        prompt.push_str(
+            "Existing notes (path, then content — any checklist items are already in the order \
+             they'll be 0-indexed):\n",
+        );
+        for note in existing_notes {
+            let content = if note.content.chars().count() <= MAX_EXISTING_NOTE_CHARS_IN_PROMPT {
+                note.content.clone()
+            } else {
+                let head: String = note.content.chars().take(MAX_EXISTING_NOTE_CHARS_IN_PROMPT).collect();
+                format!("{head}…")
+            };
+            prompt.push_str(&format!("- {}:\n{}\n\n", note.path, content));
+        }
+    }
 
-fn build_prompt(text: &str) -> String {
-    PROMPT_TEMPLATE.replace("{TEXT}", text)
+    prompt.push_str(
+        "Respond with ONLY a single JSON object, no other text, no markdown code fences, matching \
+         exactly one of these shapes:\n\n\
+         To create a new note:\n\
+         {\"action\": \"new_note\", \"type\": \"todo | meeting | status | project\", \"title\": \"short descriptive title, under 60 characters\", \"content\": \"the note body, including a YAML frontmatter block (---\\ntype: <type>\\nstatus: backlog\\n---\\n\\n) followed by the captured text, lightly cleaned up if it helps\"}\n\n\
+         To attach to an existing note by adding a new task:\n\
+         {\"action\": \"attach_existing\", \"path\": \"<one of the existing note paths above>\", \"operation\": \"add_task\", \"taskText\": \"a short task line\"}\n\n\
+         To attach to an existing note by checking off a task the capture indicates is now done \
+         (only when that note's checklist already has one matching what the capture describes):\n\
+         {\"action\": \"attach_existing\", \"path\": \"<path>\", \"operation\": \"check_task\", \"taskIndex\": <0-based index from that note's checklist>}\n\n\
+         To attach to an existing note that has no checklist by appending free text:\n\
+         {\"action\": \"attach_existing\", \"path\": \"<path>\", \"operation\": \"append_text\", \"text\": \"...\"}",
+    );
+
+    prompt
 }
 
 /// Fetched fresh from the provider each time (not cached) — the model catalog can change
@@ -216,10 +269,14 @@ fn resolve_base_url(config: &AiConfig, default_base_url: &str) -> String {
         .unwrap_or_else(|| default_base_url.to_string())
 }
 
-pub async fn classify(text: &str, config: &AiConfig) -> Result<AiClassification, AiError> {
-    let prompt = build_prompt(text);
+pub async fn propose_capture_filing(
+    text: &str,
+    existing_notes: &[ExistingNote],
+    config: &AiConfig,
+) -> Result<CaptureProposal, AiError> {
+    let prompt = build_capture_prompt(text, existing_notes);
     let raw = complete(&prompt, config).await?;
-    parse_classification(&raw)
+    parse_capture_proposal(&raw)
 }
 
 /// A single note considered for a next-action suggestion — just enough to describe it in a
@@ -229,7 +286,7 @@ pub struct BacklogNote {
     pub content: String,
 }
 
-/// Mirrors AiClassification's role: what the AI proposes, kept separate from anything actually
+/// Mirrors CaptureProposal's role: what the AI proposes, kept separate from anything actually
 /// being written — Next Action's "Confirm" step (not this call) is what makes it real, matching
 /// the confirm-first pattern used everywhere else AI touches the vault.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -496,7 +553,7 @@ fn strip_json_fence(raw: &str) -> &str {
     text
 }
 
-fn parse_classification(raw: &str) -> Result<AiClassification, AiError> {
+fn parse_capture_proposal(raw: &str) -> Result<CaptureProposal, AiError> {
     serde_json::from_str(strip_json_fence(raw))
         .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))
 }
@@ -511,26 +568,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_classification_accepts_plain_json() {
-        let result = parse_classification(
-            r#"{"type": "todo", "title": "Client X migration", "content": "---\ntype: todo\nstatus: backlog\n---\n\nbody"}"#,
+    fn parse_capture_proposal_accepts_a_new_note_shape() {
+        let result = parse_capture_proposal(
+            r#"{"action": "new_note", "type": "todo", "title": "Client X migration", "content": "---\ntype: todo\nstatus: backlog\n---\n\nbody"}"#,
         )
         .unwrap();
-        assert_eq!(result.note_type, "todo");
-        assert_eq!(result.title, "Client X migration");
+        assert_eq!(result.action, "new_note");
+        assert_eq!(result.note_type.as_deref(), Some("todo"));
+        assert_eq!(result.title.as_deref(), Some("Client X migration"));
     }
 
     #[test]
-    fn parse_classification_strips_markdown_fences() {
-        let raw = "```json\n{\"type\": \"meeting\", \"title\": \"Standup\", \"content\": \"body\"}\n```";
-        let result = parse_classification(raw).unwrap();
-        assert_eq!(result.note_type, "meeting");
-        assert_eq!(result.title, "Standup");
+    fn parse_capture_proposal_accepts_an_attach_existing_add_task_shape() {
+        let result = parse_capture_proposal(
+            r#"{"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "add_task", "taskText": "Book the venue"}"#,
+        )
+        .unwrap();
+        assert_eq!(result.action, "attach_existing");
+        assert_eq!(result.path.as_deref(), Some("todowai/backlog/parisjug.md"));
+        assert_eq!(result.operation.as_deref(), Some("add_task"));
+        assert_eq!(result.task_text.as_deref(), Some("Book the venue"));
     }
 
     #[test]
-    fn parse_classification_rejects_non_json() {
-        assert!(parse_classification("not json at all").is_err());
+    fn parse_capture_proposal_accepts_an_attach_existing_check_task_shape() {
+        let result = parse_capture_proposal(
+            r#"{"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "check_task", "taskIndex": 2}"#,
+        )
+        .unwrap();
+        assert_eq!(result.operation.as_deref(), Some("check_task"));
+        assert_eq!(result.task_index, Some(2));
+    }
+
+    #[test]
+    fn parse_capture_proposal_strips_markdown_fences() {
+        let raw = "```json\n{\"action\": \"new_note\", \"type\": \"meeting\", \"title\": \"Standup\", \"content\": \"body\"}\n```";
+        let result = parse_capture_proposal(raw).unwrap();
+        assert_eq!(result.note_type.as_deref(), Some("meeting"));
+        assert_eq!(result.title.as_deref(), Some("Standup"));
+    }
+
+    #[test]
+    fn parse_capture_proposal_rejects_non_json() {
+        assert!(parse_capture_proposal("not json at all").is_err());
+    }
+
+    #[test]
+    fn capture_prompt_lists_no_existing_notes_when_there_are_none() {
+        let prompt = build_capture_prompt("buy milk", &[]);
+        assert!(prompt.contains("Existing notes: (none)"));
+    }
+
+    #[test]
+    fn capture_prompt_includes_candidate_notes_and_their_content() {
+        let notes = [ExistingNote {
+            path: "todowai/backlog/parisjug.md".to_string(),
+            content: "---\ntype: project\n---\n\n- [ ] Find a date".to_string(),
+        }];
+        let prompt = build_capture_prompt("the date is fixed for Dec 8", &notes);
+        assert!(prompt.contains("todowai/backlog/parisjug.md"));
+        assert!(prompt.contains("Find a date"));
+        assert!(prompt.contains("the date is fixed for Dec 8"));
     }
 
     #[test]

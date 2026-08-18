@@ -402,9 +402,26 @@ export type CaptureDraft = {
   content: string;
 };
 
+// The alternative AI-proposed outcome (#99): rather than a new note, the capture is attached to
+// an existing one instead. All three action-specific fields are always present (not a
+// discriminated union) so editing the operation doesn't require reconstructing the draft —
+// which field is actually used depends on `operation`.
+export type AttachOperation = 'add_task' | 'check_task' | 'append_text';
+
+export type AttachDraft = {
+  captureId: string;
+  path: string;
+  operation: AttachOperation;
+  taskText: string;
+  taskIndex: number;
+  text: string;
+};
+
 type CaptureScreenState = {
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  attachDraft: AttachDraft | null;
+  notePaths: string[];
   isBusy: boolean;
   busyLabel: string;
   statusMessage: string;
@@ -416,6 +433,8 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
   const viewState = state ?? {
     captures: [],
     draft: null,
+    attachDraft: null,
+    notePaths: [],
     isBusy: false,
     busyLabel: '',
     statusMessage: '',
@@ -484,6 +503,7 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
     <h2 class="section-title capture-list-title">Recently captured</h2>
     <ul class="capture-list">${listHtml}</ul>
     ${viewState.draft ? renderDraftPanel(viewState.draft, viewState.isBusy) : ''}
+    ${viewState.attachDraft ? renderAttachPanel(viewState.attachDraft, viewState.notePaths, viewState.isBusy) : ''}
   `;
 }
 
@@ -510,6 +530,64 @@ function renderDraftPanel(draft: CaptureDraft, isBusy: boolean): string {
       <div class="button-row">
         <button class="primary-button" id="draft-save-button" ${isBusy ? 'disabled' : ''}>Save to Notebook</button>
         <button class="secondary-button" id="draft-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
+      </div>
+    </article>
+  `;
+}
+
+const ATTACH_OPERATION_LABELS: Record<AttachOperation, string> = {
+  add_task: 'Add a new task',
+  check_task: 'Check off an existing task',
+  append_text: 'Append text',
+};
+
+function renderAttachPanel(attachDraft: AttachDraft, notePaths: string[], isBusy: boolean): string {
+  const noteOptions = notePaths.map((path) => `<option value="${escapeHtmlAttribute(path)}"></option>`).join('');
+  const operationOptions = (Object.keys(ATTACH_OPERATION_LABELS) as AttachOperation[])
+    .map(
+      (operation) =>
+        `<option value="${operation}" ${operation === attachDraft.operation ? 'selected' : ''}>${ATTACH_OPERATION_LABELS[operation]}</option>`
+    )
+    .join('');
+
+  const operationFieldHtml =
+    attachDraft.operation === 'add_task'
+      ? `
+        <label class="field-label" for="attach-task-text">Task</label>
+        <input class="text-input" id="attach-task-text" value="${escapeHtmlAttribute(attachDraft.taskText)}" ${isBusy ? 'disabled' : ''}>
+      `
+      : attachDraft.operation === 'check_task'
+        ? `
+          <label class="field-label" for="attach-task-index">Task index (0-based, as shown on the Projects screen)</label>
+          <input class="text-input" type="number" min="0" id="attach-task-index" value="${attachDraft.taskIndex}" ${isBusy ? 'disabled' : ''}>
+        `
+        : `
+          <label class="field-label" for="attach-text">Text to append</label>
+          <textarea class="text-area" id="attach-text" ${isBusy ? 'disabled' : ''}>${escapeHtml(attachDraft.text)}</textarea>
+        `;
+
+  return `
+    <article class="card draft-card">
+      <h2 class="section-title">AI proposes: attach to an existing note</h2>
+      <p class="section-copy">
+        Nothing is saved until you click "Confirm" — edit anything below first, including which
+        note this goes to or what to do there.
+      </p>
+      <label class="field-label" for="attach-path">Note</label>
+      <input
+        class="text-input"
+        id="attach-path"
+        list="attach-note-suggestions"
+        value="${escapeHtmlAttribute(attachDraft.path)}"
+        ${isBusy ? 'disabled' : ''}
+      >
+      <datalist id="attach-note-suggestions">${noteOptions}</datalist>
+      <label class="field-label" for="attach-operation">Action</label>
+      <select class="text-input" id="attach-operation" ${isBusy ? 'disabled' : ''}>${operationOptions}</select>
+      ${operationFieldHtml}
+      <div class="button-row">
+        <button class="primary-button" id="attach-save-button" ${isBusy ? 'disabled' : ''}>Confirm</button>
+        <button class="secondary-button" id="attach-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
       </div>
     </article>
   `;
