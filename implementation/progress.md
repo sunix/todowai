@@ -26,6 +26,7 @@
 | [#19](https://github.com/sunix/todowai/issues/19) | Current-status field (task or situational context) | Claude | [#85](https://github.com/sunix/todowai/pull/85) | Merged |
 | [#20](https://github.com/sunix/todowai/issues/20) | Next Action: AI next-todo suggestion engine | Claude | [#86](https://github.com/sunix/todowai/pull/86) | Merged |
 | [#21](https://github.com/sunix/todowai/issues/21) | Situational-context small-suggestion behavior | Claude | [#88](https://github.com/sunix/todowai/pull/88) | Merged |
+| [#89](https://github.com/sunix/todowai/issues/89) | Persist Remote sync and AI provider settings locally (ad hoc, not in the Phase 3 plan) | Claude | [#90](https://github.com/sunix/todowai/pull/90) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
