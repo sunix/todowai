@@ -8,6 +8,7 @@ import type {
   ConflictSide,
   RepositoryChange,
   RepositoryHistoryEntry,
+  UpcomingEvent,
 } from './repository';
 import type { ScreenId } from './router';
 
@@ -95,6 +96,7 @@ type NextActionScreenState = {
   suggestion: string | null;
   todayPlan: string[];
   aiConfigured: boolean;
+  upcomingEvents: UpcomingEvent[];
   isBusy: boolean;
   busyLabel: string;
   statusMessage: string;
@@ -112,6 +114,7 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
     suggestion: null,
     todayPlan: [],
     aiConfigured: false,
+    upcomingEvents: [],
     isBusy: false,
     busyLabel: '',
     statusMessage: '',
@@ -207,6 +210,21 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
       ? `<ul class="plan-list">${viewState.todayPlan.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
       : '<p class="empty-state">Nothing confirmed yet today.</p>';
 
+  const upcomingListHtml =
+    viewState.upcomingEvents.length > 0
+      ? `<ul class="upcoming-list">${viewState.upcomingEvents
+          .map(
+            (event) => `
+              <li class="upcoming-entry">
+                <span class="upcoming-source">${escapeHtml(event.source)}</span>
+                <span class="upcoming-summary">${escapeHtml(event.summary)}</span>
+                <span class="upcoming-time">${escapeHtml(new Date(event.start).toLocaleString())}</span>
+              </li>
+            `
+          )
+          .join('')}</ul>`
+      : '<p class="empty-state">Nothing upcoming — connect a calendar feed in Settings, or refresh.</p>';
+
   return `
     <h1 class="title">${TITLES['next-action']}</h1>
     <p class="placeholder">Your current status, and what the AI suggests doing about it.</p>
@@ -240,6 +258,11 @@ export function renderNextActionScreen(state?: NextActionScreenState): string {
     ${suggestionCardHtml}
     <h2 class="section-title next-action-plan-title">Today's plan</h2>
     ${todayPlanHtml}
+    <div class="upcoming-header">
+      <h2 class="section-title">Upcoming</h2>
+      <button class="secondary-button" id="refresh-upcoming-button" ${viewState.isBusy ? 'disabled' : ''}>Refresh</button>
+    </div>
+    ${upcomingListHtml}
   `;
 }
 

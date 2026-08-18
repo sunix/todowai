@@ -357,6 +357,53 @@ main {
   margin-bottom: 8px;
 }
 
+.upcoming-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+}
+
+.upcoming-header .section-title {
+  margin: 0;
+}
+
+.upcoming-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.upcoming-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.upcoming-source {
+  background: #252936;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 10px;
+  flex: 0 0 auto;
+}
+
+.upcoming-summary {
+  flex: 1;
+}
+
+.upcoming-time {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
 .status-edit-card {
   margin-top: 16px;
 }

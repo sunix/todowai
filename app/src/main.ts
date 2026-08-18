@@ -9,6 +9,7 @@ import {
   fetchConflict,
   fetchSnapshot,
   fetchSyncStatus,
+  fetchUpcomingEvents,
   readFile,
   resolveConflict,
   setAiConfig,
@@ -23,6 +24,7 @@ import {
   type ConflictInfo,
   type ConflictSide,
   type SyncStatus,
+  type UpcomingEvent,
 } from './repository';
 import { getFrontmatterValue, parseFrontmatter, serializeFrontmatter, setFrontmatterValue } from './frontmatter';
 import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
@@ -144,6 +146,9 @@ type AppState = {
   // and the in-progress edit draft (add/remove/rename all mutate it directly); "Save calendar
   // feeds" is the only thing that writes it back to the vault.
   calendarFeeds: CalendarFeed[];
+  // Merged/de-duplicated/future-only already, courtesy of the backend (#23) — this is just
+  // whatever GET /api/calendar/upcoming last returned (#24).
+  upcomingEvents: UpcomingEvent[];
 };
 
 const state: AppState = {
@@ -193,6 +198,7 @@ const state: AppState = {
   rejectedSuggestions: [],
   todayPlan: [],
   calendarFeeds: [],
+  upcomingEvents: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -271,6 +277,7 @@ function render(): void {
                 suggestion: state.suggestion,
                 todayPlan: state.todayPlan,
                 aiConfigured: state.aiConfig.configured,
+                upcomingEvents: state.upcomingEvents,
                 isBusy: state.isBusy,
                 busyLabel: state.busyLabel,
                 statusMessage: state.statusMessage,
@@ -333,6 +340,7 @@ void loadSnapshot('Connecting to backend…').then(() => {
   void refreshCurrentStatus();
   void refreshTodayPlan();
   void refreshCalendarFeeds();
+  void refreshUpcomingEvents();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -996,6 +1004,17 @@ async function refreshCalendarFeeds(): Promise<void> {
   render();
 }
 
+// Quiet fallback on failure, same as the other startup refreshes above — an empty upcoming list
+// (no feeds configured, or a transient fetch failure) is a normal, non-alarming state here.
+async function refreshUpcomingEvents(): Promise<void> {
+  try {
+    state.upcomingEvents = await fetchUpcomingEvents();
+  } catch {
+    state.upcomingEvents = [];
+  }
+  render();
+}
+
 function bindNextActionScreen(): void {
   main.querySelector<HTMLButtonElement>('#status-change-button')?.addEventListener('click', () => {
     const current = state.currentStatus;
@@ -1091,6 +1110,13 @@ function bindNextActionScreen(): void {
       state.suggestion = null;
       state.rejectedSuggestions = [];
       state.statusMessage = "Added to today's plan.";
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#refresh-upcoming-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Refreshing upcoming events…', async () => {
+      state.upcomingEvents = await fetchUpcomingEvents();
+      state.statusMessage = 'Upcoming events refreshed.';
     });
   });
 }

@@ -257,3 +257,17 @@ export async function suggestNextAction(excludedSuggestions: string[]): Promise<
     body: JSON.stringify({ excludedSuggestions }),
   });
 }
+
+// Merged, de-duplicated, and already filtered to upcoming-only by the backend (see
+// backend/src/calendar.rs) — an empty array is the normal "no feeds configured yet" state, not
+// an error, matching how the backend treats a missing calendars.json (#22/#23).
+export type UpcomingEvent = {
+  source: string;
+  summary: string;
+  start: string;
+  end: string | null;
+};
+
+export async function fetchUpcomingEvents(): Promise<UpcomingEvent[]> {
+  return requestJson<UpcomingEvent[]>('/calendar/upcoming');
+}
