@@ -659,11 +659,12 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
       <article class="card">
         <h2 class="section-title">Remote sync</h2>
         <p class="section-copy">
-          Optional: connect a git remote to sync this vault. Credentials are kept in memory on
-          the backend only, never written to disk. If a remote was already configured via
-          environment variables, these fields will look empty here — that's expected, the backend
-          never sends a saved token back to the browser. Leave them blank and just watch the sync
-          status in the sidebar rather than resaving, or fill them in to override.
+          Optional: connect a git remote to sync this vault. Credentials are saved to a
+          git-ignored settings file inside this vault's Todowai subfolder — never committed, and
+          never sent back to the browser once saved — so you won't need to re-enter them after a
+          restart. If a remote was already configured (via that file or environment variables),
+          these fields will look empty here — that's expected. Leave them blank and just watch
+          the sync status in the sidebar rather than resaving, or fill them in to override.
         </p>
         <label class="field-label" for="remote-url">Remote URL</label>
         <input class="text-input" id="remote-url" list="configured-remotes" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
@@ -689,8 +690,9 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <h2 class="section-title">AI provider</h2>
         <p class="section-copy">
           Optional: connect an AI provider so Capture's "Let AI propose" button can draft a
-          classification for you. Credentials are kept in memory on the backend only, never
-          written to disk. Currently:
+          classification for you. Credentials are saved to a git-ignored settings file inside
+          this vault's Todowai subfolder — never committed, and never sent back to the browser
+          once saved — so you won't need to re-enter them after a restart. Currently:
           <strong>${
             viewState.aiConfig.configured
               ? `${escapeHtml(aiProviderLabel(viewState.aiConfig.provider))}${

@@ -300,3 +300,88 @@ fn set_subfolder_trims_slashes_and_falls_back_to_default() {
     repository.set_subfolder("   ");
     assert_eq!(repository.subfolder(), "todowai");
 }
+
+#[test]
+fn save_settings_section_persists_and_reloads() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    repository
+        .save_settings_section("ai", Some(serde_json::json!({ "provider": "anthropic", "apiKey": "sk-test" })))
+        .unwrap();
+
+    let loaded = repository.load_settings();
+    assert_eq!(loaded["ai"]["provider"], "anthropic");
+    assert_eq!(loaded["ai"]["apiKey"], "sk-test");
+}
+
+#[test]
+fn save_settings_section_clears_only_the_named_key() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    repository
+        .save_settings_section("remote", Some(serde_json::json!({ "url": "https://example.invalid/repo.git" })))
+        .unwrap();
+    repository
+        .save_settings_section("ai", Some(serde_json::json!({ "provider": "openai" })))
+        .unwrap();
+    repository.save_settings_section("remote", None).unwrap();
+
+    let loaded = repository.load_settings();
+    assert!(loaded.get("remote").is_none());
+    assert_eq!(loaded["ai"]["provider"], "openai");
+}
+
+#[test]
+fn save_settings_section_auto_gitignores_the_settings_file() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    repository
+        .save_settings_section("ai", Some(serde_json::json!({ "provider": "anthropic" })))
+        .unwrap();
+
+    let gitignore = std::fs::read_to_string(temp.path().join("todowai/.gitignore")).unwrap();
+    assert!(gitignore.lines().any(|line| line.trim() == ".todowai-settings.json"));
+
+    // Idempotent, and doesn't disturb an entry a user's own .gitignore already had.
+    std::fs::write(temp.path().join("todowai/.gitignore"), "my-own-ignore-rule\n.todowai-settings.json\n").unwrap();
+    repository
+        .save_settings_section("ai", Some(serde_json::json!({ "provider": "openai" })))
+        .unwrap();
+    let gitignore_after = std::fs::read_to_string(temp.path().join("todowai/.gitignore")).unwrap();
+    assert_eq!(gitignore_after.matches(".todowai-settings.json").count(), 1);
+    assert!(gitignore_after.contains("my-own-ignore-rule"));
+}
+
+#[test]
+fn settings_file_is_invisible_to_the_generic_file_api() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    repository
+        .save_settings_section("ai", Some(serde_json::json!({ "provider": "anthropic", "apiKey": "sk-secret" })))
+        .unwrap();
+
+    assert!(repository.read_file("todowai/.todowai-settings.json").is_err());
+    assert!(repository
+        .write_file("todowai/.todowai-settings.json", "tampered")
+        .is_err());
+
+    let snapshot = repository.snapshot().unwrap();
+    assert!(!snapshot.files.iter().any(|path| path.ends_with(".todowai-settings.json")));
+}
+
+#[test]
+fn missing_settings_file_loads_as_empty() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let repository = Repository::open(temp.path()).unwrap();
+
+    assert_eq!(repository.load_settings(), serde_json::json!({}));
+}

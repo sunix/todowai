@@ -6,11 +6,17 @@ use serde::{Deserialize, Serialize};
 use crate::error::RepoError;
 
 const DEFAULT_SUBFOLDER: &str = "todowai";
-// Never read, written, listed, staged, or committed — .git is git's own internals, and
-// .obsidian can hold sensitive plugin data belonging to a coexisting Obsidian vault that
-// Todowai must not disturb. Checked against a path's first component only (a top-level
-// name), matching how these directories actually appear in a vault.
-const PROTECTED_TOP_LEVEL_NAMES: [&str; 2] = [".git", ".obsidian"];
+// Local settings persistence (issue: persist settings so they survive a restart) — lives
+// inside Todowai's own subfolder, auto-gitignored (see ensure_settings_gitignored), and
+// protected exactly like `.git`/`.obsidian` below: never listed, read, or written through the
+// generic file API, only through the dedicated load_settings/save_settings_section methods.
+const SETTINGS_FILE_NAME: &str = ".todowai-settings.json";
+// Never read, written, listed, staged, or committed — .git is git's own internals, .obsidian
+// can hold sensitive plugin data belonging to a coexisting Obsidian vault Todowai must not
+// disturb, and the settings file holds plaintext credentials meant only for the dedicated
+// settings methods below. Checked against every path component, not just the first, so this
+// also catches the settings file nested inside the subfolder rather than at the vault root.
+const PROTECTED_NAMES: [&str; 3] = [".git", ".obsidian", SETTINGS_FILE_NAME];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -55,8 +61,11 @@ pub struct CommitResult {
     pub pending_changes: Vec<FileChange>,
 }
 
-/// Kept in memory only, consistent with other settings not persisting yet (see #60's
-/// subfolder). Never Serialize'd back out — a snapshot must never echo a PAT.
+/// Held in memory for the running process, and now also mirrored to a local, git-ignored
+/// settings file so it survives a restart (see Repository::save_settings_section) — deliberately
+/// still has no `Serialize` derive, so it's structurally impossible for a PAT to leak through
+/// some future API response by accident. api.rs builds the persisted-settings JSON for this
+/// type by hand instead, precisely to keep that guarantee.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RemoteConfig {
     pub url: String,
@@ -231,22 +240,22 @@ impl Repository {
         });
     }
 
-    /// Checked against a path's first component, matching PROTECTED_TOP_LEVEL_NAMES.
+    /// Checked against every path component, not just the first — `.git`/`.obsidian` only ever
+    /// appear at the vault root in practice, but the settings file lives nested inside the
+    /// subfolder (`<subfolder>/.todowai-settings.json`), so a first-component-only check would
+    /// miss it.
     fn is_protected(relpath: &str) -> bool {
-        Path::new(relpath)
-            .components()
-            .next()
-            .and_then(|component| component.as_os_str().to_str())
-            .is_some_and(|first| {
-                PROTECTED_TOP_LEVEL_NAMES
-                    .iter()
-                    .any(|protected| first.eq_ignore_ascii_case(protected))
-            })
+        Path::new(relpath).components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|name| PROTECTED_NAMES.iter().any(|protected| name.eq_ignore_ascii_case(protected)))
+        })
     }
 
     /// A prefix check on the path string, not just the first component — the subfolder name
     /// is user-configured and may itself contain a `/` (e.g. `notes/todowai`), unlike the
-    /// fixed, always-single-segment PROTECTED_TOP_LEVEL_NAMES.
+    /// fixed, always-single-segment PROTECTED_NAMES.
     fn is_inside_subfolder(&self, relpath: &str) -> bool {
         relpath == self.subfolder || relpath.starts_with(&format!("{}/", self.subfolder))
     }
@@ -257,7 +266,7 @@ impl Repository {
     /// new file's write path). This matters much more here than it did in the old
     /// browser-only app: this is now a network-facing API, so an unvalidated path is a
     /// real path-traversal vector, not just a self-inflicted browser-permission mistake.
-    /// Also rejects `.git`/`.obsidian` paths — see is_protected.
+    /// Also rejects `.git`/`.obsidian`/the settings file — see is_protected.
     fn resolve_relative_path(&self, relpath: &str) -> Result<PathBuf, RepoError> {
         if relpath.is_empty() {
             return Err(RepoError::InvalidPath(relpath.to_string()));
@@ -284,13 +293,14 @@ impl Repository {
             .replace('\\', "/")
     }
 
-    /// Lists every regular file in the working directory, excluding `.git`/`.obsidian`.
+    /// Lists every regular file in the working directory, excluding `.git`/`.obsidian`/the
+    /// settings file.
     pub fn list_files(&self) -> Result<Vec<String>, RepoError> {
         let mut files: Vec<String> = walkdir::WalkDir::new(&self.workdir)
             .into_iter()
             .filter_entry(|entry| {
                 !entry.file_name().to_str().is_some_and(|name| {
-                    PROTECTED_TOP_LEVEL_NAMES
+                    PROTECTED_NAMES
                         .iter()
                         .any(|protected| name.eq_ignore_ascii_case(protected))
                 })
@@ -407,6 +417,82 @@ impl Repository {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Inside Todowai's own subfolder, not the vault root — colocated with status.md/today.md,
+    /// consistent with "everything Todowai owns lives in its own subfolder".
+    fn settings_path(&self) -> PathBuf {
+        self.workdir.join(&self.subfolder).join(SETTINGS_FILE_NAME)
+    }
+
+    /// A missing or unparsable file just means "nothing persisted yet" — this is a convenience
+    /// cache the app can always fall back to env-var configuration without, not a source of
+    /// truth it depends on existing.
+    pub fn load_settings(&self) -> serde_json::Value {
+        std::fs::read_to_string(self.settings_path())
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    /// Merges `value` into the persisted settings file under `key` (e.g. "remote"/"ai"),
+    /// removing the key entirely when `value` is `None` — the same clear-by-null convention
+    /// PUT /api/sync/remote and PUT /api/ai/config already use for the in-memory config.
+    /// Callers (api.rs) build `value` by hand from the typed config rather than deriving
+    /// Serialize on RemoteConfig/AiConfig, so those types keep zero risk of ever being
+    /// accidentally returned whole from an API response (RemoteConfig especially — see its
+    /// doc comment).
+    pub fn save_settings_section(&self, key: &str, value: Option<serde_json::Value>) -> Result<(), RepoError> {
+        let mut settings = self.load_settings();
+        match value {
+            Some(value) => {
+                settings[key] = value;
+            }
+            None => {
+                if let serde_json::Value::Object(map) = &mut settings {
+                    map.remove(key);
+                }
+            }
+        }
+
+        let path = self.settings_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, serde_json::to_string_pretty(&settings).unwrap_or_default())?;
+        // Best-effort: not every target filesystem supports Unix permission bits (this
+        // container always runs on Linux, but the same Repository code also backs the Tauri
+        // desktop/mobile apps per specification/decisions.md).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+
+        self.ensure_settings_gitignored()?;
+        Ok(())
+    }
+
+    /// Auto-adds the settings file to `<subfolder>/.gitignore` the moment it's first saved —
+    /// the entire point of persisting settings to a vault file instead of just holding them in
+    /// memory is convenience, not asking the user to also remember to gitignore their own API
+    /// keys. Idempotent: does nothing once the entry is already present, and never touches any
+    /// other lines a user's own `.gitignore` might already have.
+    fn ensure_settings_gitignored(&self) -> Result<(), RepoError> {
+        let gitignore_path = self.workdir.join(&self.subfolder).join(".gitignore");
+        let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+        if existing.lines().any(|line| line.trim() == SETTINGS_FILE_NAME) {
+            return Ok(());
+        }
+
+        let mut updated = existing;
+        if !updated.is_empty() && !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str(SETTINGS_FILE_NAME);
+        updated.push('\n');
+        std::fs::write(&gitignore_path, updated)?;
         Ok(())
     }
 

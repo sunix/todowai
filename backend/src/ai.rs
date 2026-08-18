@@ -30,8 +30,11 @@ impl AiProvider {
     }
 }
 
-/// Kept in memory only, same rationale as RemoteConfig — never persisted, never echoed back
-/// with the key intact (see api::get_ai_config).
+/// Held in memory for the running process, and now also mirrored to a local, git-ignored
+/// settings file so it survives a restart — see repository::Repository::save_settings_section
+/// and RemoteConfig's doc comment for why this still deliberately has no `Serialize` derive
+/// (never echoed back with the key intact; see api::get_ai_config). api.rs builds the
+/// persisted-settings JSON for this type by hand instead of deriving Serialize on it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
