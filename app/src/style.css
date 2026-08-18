@@ -361,6 +361,25 @@ main {
   margin-top: 16px;
 }
 
+.calendar-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.calendar-row .label-input {
+  flex: 0 0 140px;
+}
+
+.calendar-row .text-input {
+  flex: 1;
+}
+
+.calendar-row .secondary-button {
+  flex: 0 0 auto;
+}
+
 .file-list {
   max-height: 280px;
   overflow: auto;

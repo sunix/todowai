@@ -33,6 +33,7 @@ import {
   renderNotebookScreen,
   renderScreen,
   renderSettingsScreen,
+  type CalendarFeed,
   type CaptureDraft,
   type CapturedNote,
   type CurrentStatus,
@@ -139,6 +140,10 @@ type AppState = {
   suggestion: string | null;
   rejectedSuggestions: string[];
   todayPlan: string[];
+  // Labeled calendar feed URLs (#22) — this array doubles as both the loaded-from-file state
+  // and the in-progress edit draft (add/remove/rename all mutate it directly); "Save calendar
+  // feeds" is the only thing that writes it back to the vault.
+  calendarFeeds: CalendarFeed[];
 };
 
 const state: AppState = {
@@ -187,6 +192,7 @@ const state: AppState = {
   suggestion: null,
   rejectedSuggestions: [],
   todayPlan: [],
+  calendarFeeds: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -230,6 +236,7 @@ function render(): void {
           aiModel: state.aiModel,
           aiBaseUrl: state.aiBaseUrl,
           aiModels: state.aiModels,
+          calendarFeeds: state.calendarFeeds,
         })
       : screen === 'notebook'
         ? renderNotebookScreen({
@@ -325,6 +332,7 @@ renderSyncIndicator();
 void loadSnapshot('Connecting to backend…').then(() => {
   void refreshCurrentStatus();
   void refreshTodayPlan();
+  void refreshCalendarFeeds();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -514,6 +522,52 @@ function bindSettingsScreen(): void {
       state.aiApiKey = '';
       state.aiModels = [];
       state.statusMessage = 'AI settings cleared.';
+    });
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-calendar-label]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const index = Number(input.dataset.calendarLabel);
+      const feed = state.calendarFeeds[index];
+      if (feed) {
+        state.calendarFeeds[index] = { ...feed, label: input.value };
+      }
+    });
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-calendar-url]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const index = Number(input.dataset.calendarUrl);
+      const feed = state.calendarFeeds[index];
+      if (feed) {
+        state.calendarFeeds[index] = { ...feed, url: input.value };
+      }
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#add-calendar-button')?.addEventListener('click', () => {
+    state.calendarFeeds = [...state.calendarFeeds, { label: '', url: '' }];
+    render();
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-remove-calendar]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const index = Number(button.dataset.removeCalendar);
+      state.calendarFeeds = state.calendarFeeds.filter((_, feedIndex) => feedIndex !== index);
+      render();
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#save-calendars-button')?.addEventListener('click', async () => {
+    // Drops rows left completely blank (e.g. an added-then-unfilled row) rather than persisting
+    // empty entries — a row with only one of label/url filled in is left alone, not validated.
+    const feeds = state.calendarFeeds.filter((feed) => feed.label.trim() || feed.url.trim());
+    await runRepositoryAction('Saving calendar feeds…', async () => {
+      const snapshot = await writeFile(calendarFeedsFilePath(state.subfolder), serializeCalendarFeeds(feeds));
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.calendarFeeds = feeds;
+      state.statusMessage = 'Calendar feeds saved.';
     });
   });
 
@@ -897,6 +951,47 @@ async function refreshTodayPlan(): Promise<void> {
     state.todayPlan = parseTodayPlan(content);
   } catch {
     state.todayPlan = [];
+  }
+  render();
+}
+
+const CALENDAR_FEEDS_FILE_NAME = 'calendars.json';
+
+function calendarFeedsFilePath(subfolder: string): string {
+  return `${subfolder}/${CALENDAR_FEEDS_FILE_NAME}`;
+}
+
+// A plain JSON array (not a frontmatter note like status.md/today.md) — each entry is a
+// {label, url} pair, and the shared frontmatter parser's list fields only ever hold flat
+// strings, not structured records. Not git-ignored like #89's local settings file: a feed URL
+// isn't a credential, and syncing it across devices is the entire point.
+function parseCalendarFeeds(content: string): CalendarFeed[] {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry): entry is { label: unknown; url: unknown } => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        label: typeof entry.label === 'string' ? entry.label : '',
+        url: typeof entry.url === 'string' ? entry.url : '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function serializeCalendarFeeds(feeds: CalendarFeed[]): string {
+  return JSON.stringify(feeds, null, 2);
+}
+
+async function refreshCalendarFeeds(): Promise<void> {
+  try {
+    const content = await readFile(calendarFeedsFilePath(state.subfolder));
+    state.calendarFeeds = parseCalendarFeeds(content);
+  } catch {
+    state.calendarFeeds = [];
   }
   render();
 }
