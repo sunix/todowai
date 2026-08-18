@@ -7,6 +7,7 @@ import {
   fetchAiModels,
   fetchConfiguredRemotes,
   fetchConflict,
+  fetchHorizonItems,
   fetchProjects,
   fetchSnapshot,
   fetchSyncStatus,
@@ -24,6 +25,8 @@ import {
   type ConfiguredRemote,
   type ConflictInfo,
   type ConflictSide,
+  type HorizonItem,
+  type HorizonValue,
   type Project,
   type SyncStatus,
   type UpcomingEvent,
@@ -33,6 +36,7 @@ import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import {
   escapeHtml,
   renderCaptureScreen,
+  renderHorizonScreen,
   renderNextActionScreen,
   renderNotebookScreen,
   renderProjectsScreen,
@@ -163,6 +167,10 @@ type AppState = {
   // A read-only projection over `type: project` notes (#25) — editing status/progress happens
   // by editing the note itself in Notebook, not through this screen.
   projects: Project[];
+  // A read-only projection over `type: todo`/`type: project` notes' `horizon:` field (#26) —
+  // moving an item writes that field directly via the generic file endpoints, not through a
+  // dedicated mutation route.
+  horizonItems: HorizonItem[];
 };
 
 const state: AppState = {
@@ -215,6 +223,7 @@ const state: AppState = {
   calendarFeeds: [],
   upcomingEvents: [],
   projects: [],
+  horizonItems: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -309,7 +318,15 @@ function render(): void {
                   statusMessage: state.statusMessage,
                   errorMessage: state.errorMessage,
                 })
-              : renderScreen(screen);
+              : screen === 'horizon'
+                ? renderHorizonScreen({
+                    items: state.horizonItems,
+                    isBusy: state.isBusy,
+                    busyLabel: state.busyLabel,
+                    statusMessage: state.statusMessage,
+                    errorMessage: state.errorMessage,
+                  })
+                : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -324,6 +341,8 @@ function render(): void {
     bindNextActionScreen();
   } else if (screen === 'projects') {
     bindProjectsScreen();
+  } else if (screen === 'horizon') {
+    bindHorizonScreen();
   }
 }
 
@@ -370,6 +389,7 @@ void loadSnapshot('Connecting to backend…').then(() => {
   void refreshCalendarFeeds();
   void refreshUpcomingEvents();
   void refreshProjects();
+  void refreshHorizonItems();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -1060,6 +1080,15 @@ async function refreshProjects(): Promise<void> {
   render();
 }
 
+async function refreshHorizonItems(): Promise<void> {
+  try {
+    state.horizonItems = await fetchHorizonItems();
+  } catch {
+    state.horizonItems = [];
+  }
+  render();
+}
+
 // Mirrors backend/src/projects.rs's own checklist parsing exactly (- [ ] / - [x] / - [X]) —
 // toggling a task is a plain read-modify-write on the note's raw content via the existing
 // generic file endpoints, not a dedicated mutation endpoint.
@@ -1126,6 +1155,36 @@ function bindProjectsScreen(): void {
         // Progress is derived server-side from the updated checklist — refetch rather than
         // recompute it here, so the two never drift out of sync.
         state.projects = await fetchProjects();
+      });
+    });
+  });
+}
+
+// Moving an item is a plain read-modify-write on its `horizon:` frontmatter field via the
+// existing generic file endpoints (#26) — same reuse pattern as project task toggling and
+// Capture's attach flow, not a dedicated mutation endpoint.
+function bindHorizonScreen(): void {
+  main.querySelectorAll<HTMLSelectElement>('[data-horizon-move]').forEach((select) => {
+    select.addEventListener('change', async (event) => {
+      const path = select.dataset.horizonMove;
+      if (!path) {
+        return;
+      }
+      const horizon = (event.target as HTMLSelectElement).value as HorizonValue;
+
+      await runRepositoryAction('Moving item…', async () => {
+        const content = await readFile(path);
+        const parsed = parseFrontmatter(content);
+        const updated = serializeFrontmatter({
+          frontmatter: setFrontmatterValue(parsed.frontmatter, 'horizon', horizon),
+          body: parsed.body,
+        });
+        const snapshot = await writeFile(path, updated);
+        state.files = snapshot.files;
+        state.pendingChanges = snapshot.pendingChanges;
+        // The column an item belongs in is derived server-side from the field just written —
+        // refetch rather than recompute it here, so the two never drift out of sync.
+        state.horizonItems = await fetchHorizonItems();
       });
     });
   });

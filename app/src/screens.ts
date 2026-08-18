@@ -6,6 +6,8 @@ import type {
   ConfiguredRemote,
   ConflictInfo,
   ConflictSide,
+  HorizonItem,
+  HorizonValue,
   Project,
   RepositoryChange,
   RepositoryHistoryEntry,
@@ -180,6 +182,94 @@ export function renderProjectsScreen(state?: ProjectsScreenState): string {
         : ''
     }
     <div class="project-grid">${projectCards}</div>
+  `;
+}
+
+// "" (unscheduled) always shown first — a note that's never been assigned a horizon is the thing
+// most likely to need attention, not something to bury after the others (#26).
+const HORIZON_COLUMNS: Array<{ value: HorizonValue | ''; label: string }> = [
+  { value: '', label: 'Unscheduled' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month(s)' },
+  { value: 'year', label: 'This Year' },
+];
+
+const HORIZON_KIND_LABELS: Record<HorizonItem['kind'], string> = {
+  todo: 'Todo',
+  project: 'Project',
+};
+
+type HorizonScreenState = {
+  items: HorizonItem[];
+  isBusy: boolean;
+  busyLabel: string;
+  statusMessage: string;
+  errorMessage: string;
+};
+
+export function renderHorizonScreen(state?: HorizonScreenState): string {
+  const viewState = state ?? { items: [], isBusy: false, busyLabel: '', statusMessage: '', errorMessage: '' };
+
+  const columnsHtml = HORIZON_COLUMNS.map((column) => {
+    const items = viewState.items.filter((item) => item.horizon === column.value);
+    const cardsHtml =
+      items.length > 0
+        ? items
+            .map(
+              (item) => `
+                <article class="card horizon-card">
+                  <div class="horizon-card-name">
+                    ${escapeHtml(item.name)}
+                    <span class="badge badge-default">${HORIZON_KIND_LABELS[item.kind]}</span>
+                  </div>
+                  <label class="field-label" for="horizon-move-${escapeHtmlAttribute(item.path)}">Move to</label>
+                  <select
+                    class="text-input"
+                    id="horizon-move-${escapeHtmlAttribute(item.path)}"
+                    data-horizon-move="${escapeHtmlAttribute(item.path)}"
+                    ${viewState.isBusy ? 'disabled' : ''}
+                  >
+                    ${item.horizon === '' ? '<option value="" selected disabled>Choose a horizon…</option>' : ''}
+                    ${HORIZON_COLUMNS.filter((option) => option.value !== '')
+                      .map(
+                        (option) =>
+                          `<option value="${option.value}" ${option.value === item.horizon ? 'selected' : ''}>${option.label}</option>`
+                      )
+                      .join('')}
+                  </select>
+                </article>
+              `
+            )
+            .join('')
+        : '<p class="empty-state">Nothing here.</p>';
+
+    return `
+      <div class="horizon-column">
+        <h2 class="section-title">${column.label}</h2>
+        ${cardsHtml}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <h1 class="title">${TITLES.horizon}</h1>
+    <p class="placeholder">Todos and projects grouped by how soon they need attention.</p>
+    ${
+      viewState.isBusy
+        ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
+        : ''
+    }
+    ${
+      viewState.statusMessage
+        ? `<p class="status-message" role="status">${escapeHtml(viewState.statusMessage)}</p>`
+        : ''
+    }
+    ${
+      viewState.errorMessage
+        ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
+        : ''
+    }
+    <div class="horizon-grid">${columnsHtml}</div>
   `;
 }
 

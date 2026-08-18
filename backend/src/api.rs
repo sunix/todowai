@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::ai::{AiConfig, AiConfigView, BacklogNote, CaptureProposal, ExistingNote, NextActionSuggestion};
 use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
+use crate::horizon::HorizonItem;
 use crate::projects::Project;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
@@ -85,6 +86,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/suggest-next-action", post(suggest_next_action))
         .route("/api/calendar/upcoming", get(upcoming_calendar_events))
         .route("/api/projects", get(list_projects))
+        .route("/api/horizon", get(list_horizon_items))
         .with_state(state)
 }
 
@@ -438,6 +440,32 @@ async fn list_projects(State(repository): State<SharedRepository>) -> Result<Jso
     })
     .await?;
     Ok(Json(projects))
+}
+
+/// Bounds how many notes get read looking for `type: todo`/`type: project` frontmatter — same
+/// rationale and cap as MAX_PROJECT_CANDIDATES above.
+const MAX_HORIZON_CANDIDATES: usize = 200;
+
+async fn list_horizon_items(State(repository): State<SharedRepository>) -> Result<Json<Vec<HorizonItem>>, RepoError> {
+    let items = with_repository(repository, |repo| {
+        let prefix = format!("{}/", repo.subfolder());
+        let candidates: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&prefix) && path.ends_with(".md"))
+            .take(MAX_HORIZON_CANDIDATES)
+            .collect();
+        let files: Vec<(String, String)> = candidates
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some((path, content))
+            })
+            .collect();
+        Ok(crate::horizon::scan_horizon_items(&files))
+    })
+    .await?;
+    Ok(Json(items))
 }
 
 #[cfg(test)]
@@ -815,5 +843,33 @@ mod tests {
         assert_eq!(projects[0].name, "Client X Migration");
         assert_eq!(projects[0].status, "blocked");
         assert_eq!(projects[0].progress, 20);
+    }
+
+    #[tokio::test]
+    async fn list_horizon_items_finds_todos_and_projects_but_not_meetings() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("todowai/backlog")).unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/write-report.md"),
+            "---\ntype: todo\nhorizon: week\n---\n\nWrite the Q3 report.",
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/parisjug.md"),
+            "---\ntype: project\nhorizon: month\n---\n\nParisJUG event.",
+        )
+        .unwrap();
+        std::fs::write(temp.path().join("todowai/backlog/standup.md"), "---\ntype: meeting\n---\n\nStandup notes.")
+            .unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/horizon").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let items: Vec<HorizonItem> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|item| item.kind == "todo" && item.horizon == "week"));
+        assert!(items.iter().any(|item| item.kind == "project" && item.horizon == "month"));
     }
 }

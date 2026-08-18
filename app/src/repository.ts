@@ -307,3 +307,20 @@ export type Project = {
 export async function fetchProjects(): Promise<Project[]> {
   return requestJson<Project[]>('/projects');
 }
+
+// A read-only projection over `type: todo`/`type: project` notes' `horizon:` frontmatter field
+// (see backend/src/horizon.rs) — the markdown stays the source of truth. `horizon` is "" for a
+// note that's never been assigned one yet (rendered as its own "Unscheduled" column, #26); moving
+// an item writes the field directly via the generic file endpoints, not through this endpoint.
+export type HorizonValue = 'week' | 'month' | 'year';
+
+export type HorizonItem = {
+  path: string;
+  name: string;
+  kind: 'todo' | 'project';
+  horizon: HorizonValue | '';
+};
+
+export async function fetchHorizonItems(): Promise<HorizonItem[]> {
+  return requestJson<HorizonItem[]>('/horizon');
+}

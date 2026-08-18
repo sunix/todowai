@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use crate::note::{display_name, parse_frontmatter_fields};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,71 +88,6 @@ fn derive_progress(tasks: &[ProjectTask], fallback: u8) -> u8 {
     }
     let done = tasks.iter().filter(|task| task.done).count();
     ((done as f64 / tasks.len() as f64) * 100.0).round() as u8
-}
-
-/// A minimal YAML-frontmatter subset reader — just scalar `key: value` lines plus the body,
-/// not a general-purpose parser (mirrors the frontend's app/src/frontmatter.ts, #18). Scoped
-/// separately from ai.rs's parse_status rather than sharing it, since that function is already
-/// merged/tested for a different specific shape (situational/task kind) and unifying the two
-/// isn't needed for this to work correctly — a reasonable future cleanup, not a blocker here.
-fn parse_frontmatter_fields(raw: &str) -> (HashMap<String, String>, String) {
-    let trimmed = raw.trim_start();
-    if !trimmed.starts_with("---") {
-        return (HashMap::new(), raw.trim().to_string());
-    }
-
-    let mut lines = trimmed.lines();
-    lines.next();
-    let mut fields = HashMap::new();
-    for line in lines.by_ref() {
-        if line.trim() == "---" {
-            break;
-        }
-        if let Some((key, value)) = line.split_once(':') {
-            fields.insert(key.trim().to_string(), value.trim().to_string());
-        }
-    }
-    let body: String = lines.collect::<Vec<_>>().join("\n");
-    (fields, body.trim().to_string())
-}
-
-/// Notes don't carry an explicit title field today — derives a readable name from the filename
-/// instead: strips a leading `YYYY-MM-DD-` date prefix (the project's own convention for filed
-/// notes, see #16/#17) and the `.md` extension, then title-cases the remaining dash-separated
-/// slug (e.g. "2026-08-10-client-x-migration.md" -> "Client X Migration").
-fn display_name(path: &str) -> String {
-    let file_name = path.rsplit('/').next().unwrap_or(path);
-    let without_ext = file_name.strip_suffix(".md").unwrap_or(file_name);
-    let without_date = strip_date_prefix(without_ext);
-
-    without_date
-        .split('-')
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut chars = segment.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn strip_date_prefix(slug: &str) -> &str {
-    let bytes = slug.as_bytes();
-    let has_date_prefix = bytes.len() > 11
-        && bytes[0..4].iter().all(u8::is_ascii_digit)
-        && bytes[4] == b'-'
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[7] == b'-'
-        && bytes[8..10].iter().all(u8::is_ascii_digit)
-        && bytes[10] == b'-';
-    if has_date_prefix {
-        &slug[11..]
-    } else {
-        slug
-    }
 }
 
 #[cfg(test)]
@@ -249,17 +184,6 @@ mod tests {
         let content = "---\ntype: project\n---\n\n- [ ] Only a task, no description";
         let project = parse_project("todowai/backlog/x.md", content).unwrap();
         assert_eq!(project.meta, "");
-    }
-
-    #[test]
-    fn display_name_strips_date_prefix_and_title_cases() {
-        assert_eq!(display_name("todowai/backlog/2026-08-10-client-x-migration.md"), "Client X Migration");
-        assert_eq!(display_name("karasun-side-project.md"), "Karasun Side Project");
-    }
-
-    #[test]
-    fn display_name_without_a_date_prefix_is_unaffected() {
-        assert_eq!(display_name("todowai/backlog/spec-cleanup.md"), "Spec Cleanup");
     }
 
     #[test]

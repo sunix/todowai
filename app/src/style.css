@@ -798,3 +798,30 @@ main {
   color: var(--muted);
   text-decoration: line-through;
 }
+
+.horizon-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+  align-items: start;
+}
+
+.horizon-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.horizon-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.horizon-card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
