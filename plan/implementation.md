@@ -101,11 +101,11 @@ The moment-to-moment decision-support loop.
   - [x] Status is visible on Next Action and persists across sessions/devices via the synced repo
   - [x] Both a task-linked status and a free-text situational status are supported
 
-- **Next Action: AI next-todo suggestion engine** (L) — https://github.com/sunix/todowai/issues/20
-  Implement the suggestion engine that proposes a next todo from current status, notes, backlog, and the connected calendar feed(s), always requiring explicit user confirmation before it is treated as decided.
-  - [ ] Suggestion incorporates status, backlog contents, and upcoming calendar events
-  - [ ] Confirm adds the item to today's plan; nothing is auto-added without confirmation
-  - [ ] Rejecting/asking for another suggestion produces a different candidate
+- **Next Action: AI next-todo suggestion engine** (L) — https://github.com/sunix/todowai/issues/20 — *Merged (#86).*
+  Implement the suggestion engine that proposes a next todo from current status, notes, backlog, and the connected calendar feed(s), always requiring explicit user confirmation before it is treated as decided. New `POST /api/ai/suggest-next-action` reads status + backlog directly and prompts the configured AI provider; rejected suggestions are tracked and excluded on retry so "suggest something else" reliably differs. Confirm appends to a new persistent `<subfolder>/today.md` list. Calendar feeds (#22–#24) don't exist yet, so suggestions are grounded in status + backlog only for now. A real-vault testing pass also surfaced and fixed an unrelated pre-existing bug (binary files breaking the startup file preview — #87).
+  - [x] Suggestion incorporates status and backlog contents (calendar events: not yet possible, #22–#24 not built)
+  - [x] Confirm adds the item to today's plan; nothing is auto-added without confirmation
+  - [x] Rejecting/asking for another suggestion produces a different candidate
 
 - **Situational-context small-suggestion behavior** (M) — https://github.com/sunix/todowai/issues/21
   When the current status is a situational context rather than a task, bias suggestions toward small, fitting backlog items (e.g. a quick look at a side project, one page of a book) instead of full tasks.
