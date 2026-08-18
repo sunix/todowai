@@ -150,12 +150,24 @@ async fn commit_all(
     Ok(Json(result))
 }
 
+/// Built by hand rather than deriving Serialize on RemoteConfig — see its doc comment for why
+/// that's deliberate (a PAT must never be structurally serializable into an API response).
+fn remote_settings_json(remote: &RemoteConfig) -> serde_json::Value {
+    serde_json::json!({ "url": remote.url, "username": remote.username, "token": remote.token })
+}
+
 async fn set_remote(
     State(repository): State<SharedRepository>,
     Json(body): Json<Option<RemoteConfig>>,
 ) -> Result<(), RepoError> {
+    let settings_value = body.as_ref().map(remote_settings_json);
     with_repository(repository, move |repo| {
         repo.set_remote(body);
+        // Best-effort: a filesystem hiccup persisting for next time shouldn't fail using the
+        // remote for this session, which already succeeded above.
+        if let Err(error) = repo.save_settings_section("remote", settings_value) {
+            tracing::warn!(%error, "failed to persist remote settings locally");
+        }
         Ok(())
     })
     .await
@@ -232,11 +244,30 @@ async fn get_ai_config(State(ai_config): State<SharedAiConfig>) -> Json<AiConfig
     Json(AiConfigView::from_config(config.as_ref()))
 }
 
+/// Built by hand rather than deriving Serialize on AiConfig — see its doc comment for why
+/// that's deliberate (an API key must never be structurally serializable into an API response).
+fn ai_settings_json(config: &AiConfig) -> serde_json::Value {
+    serde_json::json!({
+        "provider": config.provider,
+        "apiKey": config.api_key,
+        "model": config.model,
+        "baseUrl": config.base_url,
+    })
+}
+
 /// `null` clears the configured provider entirely — same convention as PUT /api/sync/remote.
 async fn set_ai_config(
+    State(repository): State<SharedRepository>,
     State(ai_config): State<SharedAiConfig>,
     Json(body): Json<Option<AiConfig>>,
 ) -> Json<AiConfigView> {
+    let settings_value = body.as_ref().map(ai_settings_json);
+    // Best-effort: a filesystem hiccup persisting for next time shouldn't block using the
+    // provider right now — the in-memory update below always takes effect regardless.
+    if let Err(error) = with_repository(repository, move |repo| repo.save_settings_section("ai", settings_value)).await {
+        tracing::warn!(%error, "failed to persist AI settings locally");
+    }
+
     let mut config = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *config = body;
     Json(AiConfigView::from_config(config.as_ref()))
@@ -548,6 +579,71 @@ mod tests {
         let view: crate::ai::AiConfigView = serde_json::from_str(&body_text).unwrap();
         assert!(view.configured);
         assert_eq!(view.model.as_deref(), Some("claude-opus-5"));
+    }
+
+    #[tokio::test]
+    async fn setting_ai_config_persists_to_the_local_settings_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_state(init_repo(temp.path()));
+        let repository = state.repository.clone();
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/ai/config")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "provider": "anthropic",
+                            "apiKey": "sk-super-secret",
+                            "model": "claude-opus-5",
+                            "baseUrl": null
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let persisted = repository.lock().unwrap().load_settings();
+        assert_eq!(persisted["ai"]["provider"], "anthropic");
+        assert_eq!(persisted["ai"]["apiKey"], "sk-super-secret");
+    }
+
+    #[tokio::test]
+    async fn setting_remote_persists_to_the_local_settings_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_state(init_repo(temp.path()));
+        let repository = state.repository.clone();
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/sync/remote")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "url": "https://example.invalid/repo.git",
+                            "username": "git",
+                            "token": "ghp_super_secret"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let persisted = repository.lock().unwrap().load_settings();
+        assert_eq!(persisted["remote"]["url"], "https://example.invalid/repo.git");
+        assert_eq!(persisted["remote"]["token"], "ghp_super_secret");
     }
 
     #[tokio::test]

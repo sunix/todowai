@@ -65,3 +65,64 @@ The original browser-only model (File System Access API + isomorphic-git, built 
 - The recurring File System Access API friction (re-picking the vault folder and
   re-walking it fully every session, since the browser API has no persistence) goes away,
   since the backend has real, persistent filesystem access.
+
+---
+
+## ADR-002: Persist Remote/AI settings to a git-ignored vault file (2026-08-18)
+
+**Status:** Accepted
+
+**Context:**
+
+ADR-001 established that credentials live server-side in the Rust core rather than in
+browser JS — but the implementation went further than that decision required, keeping
+Remote sync and AI provider config in memory only, with no persistence at all. In practice
+this means every container restart wipes both, forcing the user to retype a git PAT and an
+AI API key each time — a real, repeated friction point once self-hosting for actual daily
+use (issue #89), not just for local development.
+
+**Options considered:**
+
+- Keep in-memory only, rely entirely on `TODOWAI_REMOTE_*`/`TODOWAI_AI_*` env vars for
+  anything that should survive a restart — pushes the problem onto deployment config
+  (`docker run -e ...` / compose files) rather than solving it for someone just running the
+  container directly, and doesn't help at all if the user wants to change providers/tokens
+  without redeploying.
+- A separate secrets store (OS keychain, a `.env` file the user manages by hand) — real
+  options for the native Tauri apps later, but this backend runs in a plain Docker
+  container with no keychain access, and a manually-managed `.env` reintroduces exactly the
+  "retype it somewhere" friction this is trying to remove.
+- Persist to the vault itself, git-ignored — the vault is already the durable, private,
+  self-hosted storage this whole app is built around; reusing it needs no new
+  infrastructure and the file survives exactly as long as the vault does.
+
+**Decision:**
+
+Persist both Remote sync and AI provider config to `<subfolder>/.todowai-settings.json`,
+auto-added to `<subfolder>/.gitignore` on first save so the plaintext file is never
+committed. This is a deliberate, informed reversal of the "in-memory only" convention
+`RemoteConfig`/`AiConfig`'s doc comments previously stated — traded for the concrete
+convenience the user asked for, given the residual risk is limited to whoever already has
+filesystem access to the user's own private, self-hosted vault (the same access they'd
+need to read any other note in it).
+
+Mitigations kept in place:
+
+- The settings file is fully protected like `.git`/`.obsidian` — invisible to
+  Notebook/Settings' file listings, and rejected by the generic `read_file`/`write_file`
+  endpoints — so it's never reachable except through the dedicated settings load/save path.
+- `RemoteConfig`/`AiConfig` still deliberately have no `Serialize` derive; the persisted
+  JSON is built by hand in `api.rs` instead, so it stays structurally impossible for either
+  to leak whole through some future API response by accident — the API's existing "never
+  echo the key back" behavior (`AiConfigView`) is untouched by this change.
+- Written with `0600` permissions on Unix as a defensive baseline.
+- Persisting is best-effort: a filesystem failure never blocks actually using the remote or
+  AI provider for the current session, only the "remember it for next time" part.
+
+**Consequences:**
+
+- `TODOWAI_REMOTE_*`/`TODOWAI_AI_*` env vars now only seed a section that has never been
+  saved through the UI — once saved, the persisted file wins on every subsequent restart
+  regardless of env vars, which is what actually removes the retyping friction.
+- Self-hosting on a filesystem without normal Unix permission semantics loses the `0600`
+  hardening (best-effort, not enforced) — acceptable for v1's Docker/Linux-first target.
