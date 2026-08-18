@@ -248,14 +248,69 @@ fn truncate_for_prompt(content: &str) -> String {
     format!("{truncated}…")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusKind {
+    Situational,
+    Task,
+}
+
+/// Mirrors the minimal frontmatter subset app/src/frontmatter.ts parses on the frontend (#18) —
+/// just enough to pull out status.md's `kind` field (#19) and its free-text label/body, not a
+/// general-purpose YAML parser (nothing else in the backend needs one). `raw` is status.md's
+/// whole file content, frontmatter fence included.
+fn parse_status(raw: &str) -> (Option<StatusKind>, String) {
+    let trimmed = raw.trim_start();
+    if !trimmed.starts_with("---") {
+        return (None, raw.trim().to_string());
+    }
+
+    let mut lines = trimmed.lines();
+    lines.next(); // opening fence
+    let mut kind = None;
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            break;
+        }
+        if let Some(value) = line.strip_prefix("kind:") {
+            kind = match value.trim() {
+                "situational" => Some(StatusKind::Situational),
+                "task" => Some(StatusKind::Task),
+                _ => None,
+            };
+        }
+    }
+    let body: String = lines.collect::<Vec<_>>().join("\n");
+    (kind, body.trim().to_string())
+}
+
 fn build_suggestion_prompt(status: Option<&str>, backlog_notes: &[BacklogNote], excluded_suggestions: &[String]) -> String {
     let mut prompt = String::from(
         "You are helping a user decide what to do next, based on their current status and their backlog notes.\n\n",
     );
 
-    match status {
-        Some(status) if !status.trim().is_empty() => prompt.push_str(&format!("Current status: {status}\n\n")),
-        _ => prompt.push_str("Current status: not set\n\n"),
+    let (status_kind, status_label) = match status {
+        Some(raw) if !raw.trim().is_empty() => {
+            let (kind, label) = parse_status(raw);
+            (kind, (!label.is_empty()).then_some(label))
+        }
+        _ => (None, None),
+    };
+
+    match &status_label {
+        Some(label) => prompt.push_str(&format!("Current status: {label}\n\n")),
+        None => prompt.push_str("Current status: not set\n\n"),
+    }
+
+    // #21: a situational status (a short break or passive moment) should bias toward something
+    // small enough to fit that moment; a task-linked status gets no special treatment — the
+    // baseline behavior below already suggests a normal next todo.
+    if status_kind == Some(StatusKind::Situational) {
+        prompt.push_str(
+            "The current status is a situational context (a short break or passive moment), not an \
+             active work task. Bias your suggestion toward something small and quick that fits a short \
+             moment — e.g. a brief look at a side project, reading one page of a book — rather than a \
+             large or involved task, even if a bigger backlog item would otherwise fit.\n\n",
+        );
     }
 
     if backlog_notes.is_empty() {
@@ -543,5 +598,50 @@ mod tests {
         let truncated = truncate_for_prompt(&long_content);
         assert_eq!(truncated.chars().count(), MAX_NOTE_CHARS_IN_PROMPT + 1); // +1 for the "…" marker
         assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn parse_status_extracts_situational_kind_and_label() {
+        let raw = "---\nkind: situational\n---\n\nCoffee break";
+        let (kind, label) = parse_status(raw);
+        assert_eq!(kind, Some(StatusKind::Situational));
+        assert_eq!(label, "Coffee break");
+    }
+
+    #[test]
+    fn parse_status_extracts_task_kind_and_label_ignoring_other_fields() {
+        let raw = "---\nkind: task\ntask: todowai/doing/fix-login-bug.md\n---\n\nfix-login-bug";
+        let (kind, label) = parse_status(raw);
+        assert_eq!(kind, Some(StatusKind::Task));
+        assert_eq!(label, "fix-login-bug");
+    }
+
+    #[test]
+    fn parse_status_returns_none_kind_for_content_with_no_frontmatter() {
+        let (kind, label) = parse_status("just some text, no frontmatter");
+        assert_eq!(kind, None);
+        assert_eq!(label, "just some text, no frontmatter");
+    }
+
+    #[test]
+    fn suggestion_prompt_biases_toward_small_items_for_situational_status() {
+        let raw_status = "---\nkind: situational\n---\n\nCoffee break";
+        let prompt = build_suggestion_prompt(Some(raw_status), &[], &[]);
+        assert!(prompt.contains("Current status: Coffee break"));
+        assert!(prompt.contains("small and quick"));
+    }
+
+    #[test]
+    fn suggestion_prompt_has_no_special_bias_for_task_status() {
+        let raw_status = "---\nkind: task\ntask: todowai/doing/fix-login-bug.md\n---\n\nfix-login-bug";
+        let prompt = build_suggestion_prompt(Some(raw_status), &[], &[]);
+        assert!(prompt.contains("Current status: fix-login-bug"));
+        assert!(!prompt.contains("small and quick"));
+    }
+
+    #[test]
+    fn suggestion_prompt_has_no_special_bias_when_status_is_unset() {
+        let prompt = build_suggestion_prompt(None, &[], &[]);
+        assert!(!prompt.contains("small and quick"));
     }
 }
