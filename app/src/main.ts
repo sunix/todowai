@@ -1045,7 +1045,17 @@ async function loadSnapshot(busyLabel: string): Promise<void> {
     state.history = snapshot.history;
     state.pendingChanges = snapshot.pendingChanges;
     state.selectedFilePath = snapshot.files[0] ?? '';
-    state.selectedFileContent = state.selectedFilePath ? await readFile(state.selectedFilePath) : '';
+    // Best-effort preview only — in a real vault the first file can easily be something
+    // non-text (e.g. an image pasted into an Obsidian note). Failing to preview it shouldn't
+    // abort the rest of snapshot loading below, or surface as an app-wide error message.
+    state.selectedFileContent = '';
+    if (state.selectedFilePath) {
+      try {
+        state.selectedFileContent = await readFile(state.selectedFilePath);
+      } catch {
+        state.selectedFilePath = '';
+      }
+    }
 
     // Auto-expand first-level folders so a freshly loaded vault shows some content
     // immediately, rather than a flat list of collapsed top-level entries.

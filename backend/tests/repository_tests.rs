@@ -114,6 +114,20 @@ fn read_file_rejects_missing_file() {
     assert!(result.is_err());
 }
 
+// A real vault can contain non-text files (e.g. images pasted into Obsidian notes) alongside
+// markdown — reading one back should be a clean client-facing error, not a raw IO failure.
+#[test]
+fn read_file_of_a_binary_file_is_not_a_generic_io_error() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    std::fs::write(temp.path().join("image.png"), [0xFFu8, 0xD8, 0xFF, 0x00, 0x10]).unwrap();
+    let repository = Repository::open(temp.path()).unwrap();
+
+    let result = repository.read_file("image.png");
+
+    assert!(matches!(result, Err(todowai_backend::error::RepoError::NotText(_))));
+}
+
 #[test]
 fn list_files_excludes_git_internals() {
     let temp = tempfile::tempdir().unwrap();

@@ -383,7 +383,13 @@ impl Repository {
         if !path.is_file() {
             return Err(RepoError::NotFound(relpath.to_string()));
         }
-        Ok(std::fs::read_to_string(path)?)
+        std::fs::read_to_string(path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidData {
+                RepoError::NotText(relpath.to_string())
+            } else {
+                RepoError::Io(error)
+            }
+        })
     }
 
     /// Outside the configured subfolder, editing an existing file is fine (that's how notes
