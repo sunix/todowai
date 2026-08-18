@@ -395,6 +395,15 @@ const DRAFT_TYPE_OPTIONS: Array<{ value: DraftType; label: string }> = [
   { value: 'project', label: 'Project note' },
 ];
 
+// The alternative to filing a capture as a brand-new note (#16/#17): attaches it to an
+// existing project as a new checklist task instead (#96) — for the common case of "this is
+// more info about something I already filed," which filing-as-new-note has no way to express.
+export type AttachDraft = {
+  captureId: string;
+  projectPath: string;
+  taskText: string;
+};
+
 export type CaptureDraft = {
   captureId: string;
   type: DraftType;
@@ -405,6 +414,8 @@ export type CaptureDraft = {
 type CaptureScreenState = {
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  attachDraft: AttachDraft | null;
+  projects: Project[];
   isBusy: boolean;
   busyLabel: string;
   statusMessage: string;
@@ -416,6 +427,8 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
   const viewState = state ?? {
     captures: [],
     draft: null,
+    attachDraft: null,
+    projects: [],
     isBusy: false,
     busyLabel: '',
     statusMessage: '',
@@ -444,6 +457,12 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
                       ${viewState.isBusy || !viewState.aiConfigured ? 'disabled' : ''}
                       title="${viewState.aiConfigured ? '' : 'Configure an AI provider in Settings first'}"
                     >Let AI propose</button>
+                    <button
+                      class="secondary-button"
+                      data-attach-capture="${escapeHtmlAttribute(capture.id)}"
+                      ${viewState.isBusy || viewState.projects.length === 0 ? 'disabled' : ''}
+                      title="${viewState.projects.length === 0 ? 'No projects to attach to yet' : ''}"
+                    >Attach to project</button>
                   </div>
                 </div>
               </li>
@@ -484,6 +503,7 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
     <h2 class="section-title capture-list-title">Recently captured</h2>
     <ul class="capture-list">${listHtml}</ul>
     ${viewState.draft ? renderDraftPanel(viewState.draft, viewState.isBusy) : ''}
+    ${viewState.attachDraft ? renderAttachPanel(viewState.attachDraft, viewState.projects, viewState.isBusy) : ''}
   `;
 }
 
@@ -510,6 +530,33 @@ function renderDraftPanel(draft: CaptureDraft, isBusy: boolean): string {
       <div class="button-row">
         <button class="primary-button" id="draft-save-button" ${isBusy ? 'disabled' : ''}>Save to Notebook</button>
         <button class="secondary-button" id="draft-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderAttachPanel(attachDraft: AttachDraft, projects: Project[], isBusy: boolean): string {
+  const projectOptions = projects
+    .map(
+      (project) =>
+        `<option value="${escapeHtmlAttribute(project.path)}" ${project.path === attachDraft.projectPath ? 'selected' : ''}>${escapeHtml(project.name)}</option>`
+    )
+    .join('');
+
+  return `
+    <article class="card draft-card">
+      <h2 class="section-title">Attach to an existing project</h2>
+      <p class="section-copy">
+        Adds this as a new task on the selected project — nothing else about that project's note
+        changes. Nothing is saved until you click "Add as task".
+      </p>
+      <label class="field-label" for="attach-project">Project</label>
+      <select class="text-input" id="attach-project" ${isBusy ? 'disabled' : ''}>${projectOptions}</select>
+      <label class="field-label" for="attach-task-text">Task</label>
+      <input class="text-input" id="attach-task-text" value="${escapeHtmlAttribute(attachDraft.taskText)}" ${isBusy ? 'disabled' : ''}>
+      <div class="button-row">
+        <button class="primary-button" id="attach-save-button" ${isBusy ? 'disabled' : ''}>Add as task</button>
+        <button class="secondary-button" id="attach-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
       </div>
     </article>
   `;

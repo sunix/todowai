@@ -38,6 +38,7 @@ import {
   renderProjectsScreen,
   renderScreen,
   renderSettingsScreen,
+  type AttachDraft,
   type CalendarFeed,
   type CaptureDraft,
   type CapturedNote,
@@ -123,6 +124,10 @@ type AppState = {
   conflictChoices: Record<string, ConflictSide>;
   captures: CapturedNote[];
   draft: CaptureDraft | null;
+  // The alternative to filing-as-new-note (#96): attaches a capture to an existing project as
+  // a new checklist task instead. Mutually exclusive with `draft` — opening one closes the
+  // other, same as any other single-panel-at-a-time UI in this app.
+  attachDraft: AttachDraft | null;
   aiConfig: AiConfigView;
   aiProvider: AiProvider;
   aiApiKey: string;
@@ -189,6 +194,7 @@ const state: AppState = {
   conflictChoices: {},
   captures: loadCaptures(),
   draft: null,
+  attachDraft: null,
   aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
   aiProvider: 'anthropic',
   aiApiKey: '',
@@ -267,6 +273,8 @@ function render(): void {
           ? renderCaptureScreen({
               captures: state.captures,
               draft: state.draft,
+              attachDraft: state.attachDraft,
+              projects: state.projects,
               isBusy: state.isBusy,
               busyLabel: state.busyLabel,
               statusMessage: state.statusMessage,
@@ -1238,6 +1246,7 @@ function bindCaptureScreen(): void {
         title: capture.text.slice(0, 48),
         content: defaultDraftContent(type, capture.text),
       };
+      state.attachDraft = null;
       render();
     });
   });
@@ -1258,6 +1267,7 @@ function bindCaptureScreen(): void {
           title: proposal.title,
           content: proposal.content,
         };
+        state.attachDraft = null;
       });
     });
   });
@@ -1313,6 +1323,74 @@ function bindCaptureScreen(): void {
       state.selectedFilePath = path;
       state.selectedFileContent = content;
       state.statusMessage = `Saved to Notebook: ${path}.`;
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-attach-capture]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const captureId = button.dataset.attachCapture;
+      const capture = state.captures.find((entry) => entry.id === captureId);
+      const firstProject = state.projects[0];
+      if (!capture || !firstProject) {
+        return;
+      }
+
+      state.attachDraft = {
+        captureId: capture.id,
+        projectPath: firstProject.path,
+        // A checklist task is a single line — collapse any newlines in the capture text rather
+        // than risk a raw line break breaking the `- [ ] ...` line format on save.
+        taskText: capture.text.replace(/\s+/g, ' ').trim(),
+      };
+      state.draft = null;
+      render();
+    });
+  });
+
+  main.querySelector<HTMLSelectElement>('#attach-project')?.addEventListener('change', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, projectPath: (event.target as HTMLSelectElement).value };
+  });
+
+  main.querySelector<HTMLInputElement>('#attach-task-text')?.addEventListener('input', (event) => {
+    if (!state.attachDraft) {
+      return;
+    }
+    state.attachDraft = { ...state.attachDraft, taskText: (event.target as HTMLInputElement).value };
+  });
+
+  main.querySelector<HTMLButtonElement>('#attach-cancel-button')?.addEventListener('click', () => {
+    state.attachDraft = null;
+    render();
+  });
+
+  main.querySelector<HTMLButtonElement>('#attach-save-button')?.addEventListener('click', async () => {
+    const attachDraft = state.attachDraft;
+    if (!attachDraft) {
+      return;
+    }
+    const taskText = attachDraft.taskText.trim();
+    if (!taskText) {
+      state.errorMessage = 'Enter the task text before adding it.';
+      render();
+      return;
+    }
+
+    await runRepositoryAction('Adding task to project…', async () => {
+      const content = await readFile(attachDraft.projectPath);
+      const separator = content.endsWith('\n') ? '' : '\n';
+      const snapshot = await writeFile(attachDraft.projectPath, `${content}${separator}- [ ] ${taskText}\n`);
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.captures = state.captures.filter((entry) => entry.id !== attachDraft.captureId);
+      saveCaptures(state.captures);
+      state.attachDraft = null;
+      // The project's progress/task list changed — refetch rather than let it drift stale
+      // until the next full snapshot load.
+      state.projects = await fetchProjects();
+      state.statusMessage = `Added as a task on ${attachDraft.projectPath}.`;
     });
   });
 }
