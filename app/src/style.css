@@ -703,3 +703,76 @@ main {
   color: var(--muted);
   cursor: pointer;
 }
+
+.project-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 16px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.project-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.badge {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge-blocked {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff9b9b;
+}
+
+.badge-in-progress {
+  background: rgba(124, 108, 240, 0.15);
+  color: var(--accent);
+}
+
+.badge-ai-delegated {
+  background: rgba(142, 229, 157, 0.15);
+  color: #8ee59d;
+}
+
+.badge-backlog,
+.badge-default {
+  background: #252936;
+  color: var(--muted);
+}
+
+.badge-done {
+  background: rgba(142, 229, 157, 0.15);
+  color: #8ee59d;
+}
+
+.progress-track {
+  background: #252936;
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: var(--accent);
+  height: 100%;
+}

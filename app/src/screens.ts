@@ -6,6 +6,7 @@ import type {
   ConfiguredRemote,
   ConflictInfo,
   ConflictSide,
+  Project,
   RepositoryChange,
   RepositoryHistoryEntry,
   UpcomingEvent,
@@ -75,6 +76,83 @@ export function renderScreen(screen: ScreenId): string {
   return `
     <h1 class="title">${TITLES[screen]}</h1>
     <p class="placeholder">This screen is not implemented yet.</p>
+  `;
+}
+
+// A known set gets distinct badge styling (matching the mockup's blocked/parallel/ai badges);
+// anything else the user writes into a project note's `status` field still renders, just with
+// a neutral fallback style — the field stays free text, not a fixed enum.
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  blocked: 'Blocked',
+  'in-progress': 'In progress',
+  'ai-delegated': 'AI delegated',
+  backlog: 'Backlog',
+  done: 'Done',
+};
+
+const KNOWN_PROJECT_STATUSES = new Set(Object.keys(PROJECT_STATUS_LABELS));
+
+function projectStatusLabel(status: string): string {
+  return PROJECT_STATUS_LABELS[status] ?? status;
+}
+
+function projectStatusClass(status: string): string {
+  return KNOWN_PROJECT_STATUSES.has(status) ? `badge-${status}` : 'badge-default';
+}
+
+type ProjectsScreenState = {
+  projects: Project[];
+  isBusy: boolean;
+  busyLabel: string;
+  statusMessage: string;
+  errorMessage: string;
+};
+
+export function renderProjectsScreen(state?: ProjectsScreenState): string {
+  const viewState = state ?? { projects: [], isBusy: false, busyLabel: '', statusMessage: '', errorMessage: '' };
+
+  const projectCards =
+    viewState.projects.length > 0
+      ? viewState.projects
+          .map(
+            (project) => `
+              <article class="card project-card">
+                <div class="project-name">
+                  ${escapeHtml(project.name)}
+                  <span class="badge ${projectStatusClass(project.status)}">${escapeHtml(projectStatusLabel(project.status))}</span>
+                </div>
+                ${project.meta ? `<p class="project-meta">${escapeHtml(project.meta)}</p>` : ''}
+                <div class="progress-track"><div class="progress-fill" style="width: ${project.progress}%"></div></div>
+                ${
+                  project.status === 'ai-delegated'
+                    ? `<button class="secondary-button" data-review-ai-suggestions>Review AI suggestions →</button>`
+                    : ''
+                }
+              </article>
+            `
+          )
+          .join('')
+      : '<p class="empty-state">No projects yet — file a capture as a "Project note" to see it here.</p>';
+
+  return `
+    <h1 class="title">${TITLES.projects}</h1>
+    <p class="placeholder">Large tasks, parallel work, and delegated AI work.</p>
+    ${
+      viewState.isBusy
+        ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
+        : ''
+    }
+    ${
+      viewState.statusMessage
+        ? `<p class="status-message" role="status">${escapeHtml(viewState.statusMessage)}</p>`
+        : ''
+    }
+    ${
+      viewState.errorMessage
+        ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
+        : ''
+    }
+    <div class="project-grid">${projectCards}</div>
   `;
 }
 

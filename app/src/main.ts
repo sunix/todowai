@@ -7,6 +7,7 @@ import {
   fetchAiModels,
   fetchConfiguredRemotes,
   fetchConflict,
+  fetchProjects,
   fetchSnapshot,
   fetchSyncStatus,
   fetchUpcomingEvents,
@@ -23,6 +24,7 @@ import {
   type ConfiguredRemote,
   type ConflictInfo,
   type ConflictSide,
+  type Project,
   type SyncStatus,
   type UpcomingEvent,
 } from './repository';
@@ -33,6 +35,7 @@ import {
   renderCaptureScreen,
   renderNextActionScreen,
   renderNotebookScreen,
+  renderProjectsScreen,
   renderScreen,
   renderSettingsScreen,
   type CalendarFeed,
@@ -149,6 +152,9 @@ type AppState = {
   // Merged/de-duplicated/future-only already, courtesy of the backend (#23) — this is just
   // whatever GET /api/calendar/upcoming last returned (#24).
   upcomingEvents: UpcomingEvent[];
+  // A read-only projection over `type: project` notes (#25) — editing status/progress happens
+  // by editing the note itself in Notebook, not through this screen.
+  projects: Project[];
 };
 
 const state: AppState = {
@@ -199,6 +205,7 @@ const state: AppState = {
   todayPlan: [],
   calendarFeeds: [],
   upcomingEvents: [],
+  projects: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -283,7 +290,15 @@ function render(): void {
                 statusMessage: state.statusMessage,
                 errorMessage: state.errorMessage,
               })
-            : renderScreen(screen);
+            : screen === 'projects'
+              ? renderProjectsScreen({
+                  projects: state.projects,
+                  isBusy: state.isBusy,
+                  busyLabel: state.busyLabel,
+                  statusMessage: state.statusMessage,
+                  errorMessage: state.errorMessage,
+                })
+              : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -296,6 +311,8 @@ function render(): void {
     bindCaptureScreen();
   } else if (screen === 'next-action') {
     bindNextActionScreen();
+  } else if (screen === 'projects') {
+    bindProjectsScreen();
   }
 }
 
@@ -341,6 +358,7 @@ void loadSnapshot('Connecting to backend…').then(() => {
   void refreshTodayPlan();
   void refreshCalendarFeeds();
   void refreshUpcomingEvents();
+  void refreshProjects();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -1013,6 +1031,26 @@ async function refreshUpcomingEvents(): Promise<void> {
     state.upcomingEvents = [];
   }
   render();
+}
+
+async function refreshProjects(): Promise<void> {
+  try {
+    state.projects = await fetchProjects();
+  } catch {
+    state.projects = [];
+  }
+  render();
+}
+
+// There's no per-project AI-suggestion queue yet — matching the mockup, this just sends the
+// user to Next Action, where AI suggestions already surface (#20/#21). Every AI-delegated
+// project's card renders this same button, so it's bound by attribute, not a unique id.
+function bindProjectsScreen(): void {
+  main.querySelectorAll<HTMLButtonElement>('[data-review-ai-suggestions]').forEach((button) => {
+    button.addEventListener('click', () => {
+      navigateTo('next-action');
+    });
+  });
 }
 
 function bindNextActionScreen(): void {
