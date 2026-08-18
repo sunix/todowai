@@ -512,6 +512,15 @@ export function renderNotebookScreen(state?: NotebookScreenState): string {
   `;
 }
 
+// Read-only iCal feed URLs the AI/Upcoming list can merge events from (#23/#24) — persisted at
+// `<subfolder>/calendars.json`, a plain synced vault file (unlike the git-ignored local settings
+// from #89: a feed URL isn't a credential, and the whole point here is it follows the user
+// across devices via the same sync as their notes).
+export type CalendarFeed = {
+  label: string;
+  url: string;
+};
+
 type SettingsScreenState = {
   folderName: string | null;
   subfolder: string;
@@ -540,6 +549,7 @@ type SettingsScreenState = {
   aiModel: string;
   aiBaseUrl: string;
   aiModels: string[];
+  calendarFeeds: CalendarFeed[];
 };
 
 const CHANGE_TYPE_LABEL: Record<RepositoryChange['changeType'], string> = {
@@ -577,6 +587,7 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     aiModel: '',
     aiBaseUrl: '',
     aiModels: [],
+    calendarFeeds: [],
   };
 
   const fileTree = buildFileTree(viewState.files);
@@ -745,6 +756,47 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <div class="button-row">
           <button class="primary-button" id="save-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Save AI settings</button>
           <button class="secondary-button" id="clear-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Clear</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2 class="section-title">Calendar feeds</h2>
+        <p class="section-copy">
+          Optional: read-only calendar feed URLs (e.g. iCal links), each with a label (e.g.
+          "Work", "Personal") — merged into what's upcoming. Saved to this vault and synced like
+          any other note; unlike Remote sync/AI provider above, a feed URL isn't a credential, so
+          this file isn't git-ignored.
+        </p>
+        ${
+          viewState.calendarFeeds.length > 0
+            ? viewState.calendarFeeds
+                .map(
+                  (feed, index) => `
+                    <div class="calendar-row">
+                      <input
+                        class="text-input label-input"
+                        data-calendar-label="${index}"
+                        value="${escapeHtmlAttribute(feed.label)}"
+                        placeholder="Work"
+                        ${viewState.isBusy ? 'disabled' : ''}
+                      >
+                      <input
+                        class="text-input"
+                        data-calendar-url="${index}"
+                        value="${escapeHtmlAttribute(feed.url)}"
+                        placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+                        ${viewState.isBusy ? 'disabled' : ''}
+                      >
+                      <button class="secondary-button" data-remove-calendar="${index}" ${viewState.isBusy ? 'disabled' : ''}>Remove</button>
+                    </div>
+                  `
+                )
+                .join('')
+            : '<p class="empty-state">No calendar feeds yet.</p>'
+        }
+        <div class="button-row">
+          <button class="secondary-button" id="add-calendar-button" ${viewState.isBusy ? 'disabled' : ''}>+ Add calendar</button>
+          <button class="primary-button" id="save-calendars-button" ${viewState.isBusy ? 'disabled' : ''}>Save calendar feeds</button>
         </div>
       </article>
 
