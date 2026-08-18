@@ -271,3 +271,18 @@ export type UpcomingEvent = {
 export async function fetchUpcomingEvents(): Promise<UpcomingEvent[]> {
   return requestJson<UpcomingEvent[]>('/calendar/upcoming');
 }
+
+// A read-only projection over whatever notes already carry `type: project` frontmatter (see
+// backend/src/projects.rs) — the markdown stays the source of truth; editing a project's
+// status/progress happens by editing its note directly in Notebook, not through this endpoint.
+export type Project = {
+  path: string;
+  name: string;
+  status: string;
+  progress: number;
+  meta: string;
+};
+
+export async function fetchProjects(): Promise<Project[]> {
+  return requestJson<Project[]>('/projects');
+}

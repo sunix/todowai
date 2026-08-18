@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::ai::{AiClassification, AiConfig, AiConfigView, BacklogNote, NextActionSuggestion};
 use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
+use crate::projects::Project;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
 };
@@ -83,6 +84,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/models", get(list_ai_models))
         .route("/api/ai/suggest-next-action", post(suggest_next_action))
         .route("/api/calendar/upcoming", get(upcoming_calendar_events))
+        .route("/api/projects", get(list_projects))
         .with_state(state)
 }
 
@@ -383,6 +385,33 @@ async fn upcoming_calendar_events(State(repository): State<SharedRepository>) ->
 
     let events = crate::calendar::fetch_upcoming_events(&feeds).await;
     Ok(Json(events))
+}
+
+/// Bounds how many notes get read looking for `type: project` frontmatter — generous compared
+/// to #20's backlog cap since this is purely local disk I/O, not sent to an external API, but
+/// still worth a defensive limit as a personal vault's note count grows over time.
+const MAX_PROJECT_CANDIDATES: usize = 200;
+
+async fn list_projects(State(repository): State<SharedRepository>) -> Result<Json<Vec<Project>>, RepoError> {
+    let projects = with_repository(repository, |repo| {
+        let prefix = format!("{}/", repo.subfolder());
+        let candidates: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&prefix) && path.ends_with(".md"))
+            .take(MAX_PROJECT_CANDIDATES)
+            .collect();
+        let files: Vec<(String, String)> = candidates
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some((path, content))
+            })
+            .collect();
+        Ok(crate::projects::scan_projects(&files))
+    })
+    .await?;
+    Ok(Json(projects))
 }
 
 #[cfg(test)]
@@ -725,5 +754,40 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let events: Vec<crate::calendar::CalendarEvent> = serde_json::from_slice(&body).unwrap();
         assert!(events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_projects_with_no_project_notes_is_an_empty_list() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/projects").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let projects: Vec<Project> = serde_json::from_slice(&body).unwrap();
+        assert!(projects.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_projects_finds_a_project_note_inside_the_subfolder() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("todowai/backlog")).unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/2026-08-10-client-x-migration.md"),
+            "---\ntype: project\nstatus: blocked\nprogress: 20\n---\n\nWaiting on external API keys.",
+        )
+        .unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/projects").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let projects: Vec<Project> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "Client X Migration");
+        assert_eq!(projects[0].status, "blocked");
+        assert_eq!(projects[0].progress, 20);
     }
 }
