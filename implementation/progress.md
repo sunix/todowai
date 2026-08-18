@@ -34,6 +34,7 @@
 | [#95](https://github.com/sunix/todowai/issues/95) | Project notes: task checklists with auto-derived progress (ad hoc, not in the Phase 3 plan) | Claude | [#97](https://github.com/sunix/todowai/pull/97) | Merged |
 | [#96](https://github.com/sunix/todowai/issues/96) | Capture: manual "attach to project" picker (ad hoc, not in the Phase 3 plan) | Claude | [#98](https://github.com/sunix/todowai/pull/98) (closed, not merged) | Superseded by [#99](https://github.com/sunix/todowai/issues/99) |
 | [#99](https://github.com/sunix/todowai/issues/99) | Capture: AI-proposed attachment to an existing note (ad hoc, not in the Phase 3 plan) | Claude | [#100](https://github.com/sunix/todowai/pull/100) | Merged |
+| [#101](https://github.com/sunix/todowai/issues/101) | Capture: AI-proposed multiple actions from a single capture (ad hoc, not in the Phase 3 plan) | Claude | [#102](https://github.com/sunix/todowai/pull/102) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
