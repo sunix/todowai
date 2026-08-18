@@ -6,6 +6,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::ai::{AiClassification, AiConfig, AiConfigView, BacklogNote, NextActionSuggestion};
+use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
@@ -81,6 +82,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/classify", post(classify_capture))
         .route("/api/ai/models", get(list_ai_models))
         .route("/api/ai/suggest-next-action", post(suggest_next_action))
+        .route("/api/calendar/upcoming", get(upcoming_calendar_events))
         .with_state(state)
 }
 
@@ -363,6 +365,24 @@ async fn suggest_next_action(
     let suggestion =
         crate::ai::suggest_next_action(status.as_deref(), &backlog_notes, &body.excluded_suggestions, &config).await?;
     Ok(Json(suggestion))
+}
+
+/// Same well-known name as app/src/main.ts's CALENDAR_FEEDS_FILE_NAME — see #22. No configured
+/// feeds (file missing, or present but empty) is a normal, common state, not an error: the
+/// frontend already treats an absent file as "no feeds yet," so this mirrors that rather than
+/// requiring AiNotConfigured-style client-error handling for an entirely optional feature.
+const CALENDAR_FEEDS_FILE_NAME: &str = "calendars.json";
+
+async fn upcoming_calendar_events(State(repository): State<SharedRepository>) -> Result<Json<Vec<CalendarEvent>>, RepoError> {
+    let feeds: Vec<CalendarFeedConfig> = with_repository(repository, |repo| {
+        let path = format!("{}/{CALENDAR_FEEDS_FILE_NAME}", repo.subfolder());
+        let content = repo.read_file(&path).unwrap_or_else(|_| "[]".to_string());
+        Ok(serde_json::from_str(&content).unwrap_or_default())
+    })
+    .await?;
+
+    let events = crate::calendar::fetch_upcoming_events(&feeds).await;
+    Ok(Json(events))
 }
 
 #[cfg(test)]
@@ -684,5 +704,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn upcoming_calendar_events_with_no_feeds_configured_is_an_empty_list_not_an_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/calendar/upcoming")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let events: Vec<crate::calendar::CalendarEvent> = serde_json::from_slice(&body).unwrap();
+        assert!(events.is_empty());
     }
 }
