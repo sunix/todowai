@@ -29,6 +29,7 @@
 | [#89](https://github.com/sunix/todowai/issues/89) | Persist Remote sync and AI provider settings locally (ad hoc, not in the Phase 3 plan) | Claude | [#90](https://github.com/sunix/todowai/pull/90) | Merged |
 | [#22](https://github.com/sunix/todowai/issues/22) | Settings: multiple labeled calendar feed URLs | Claude | [#91](https://github.com/sunix/todowai/pull/91) | Merged |
 | [#23](https://github.com/sunix/todowai/issues/23) | ICS feed fetch + parse (read-only, multi-source) | Claude | [#92](https://github.com/sunix/todowai/pull/92) | Merged |
+| [#24](https://github.com/sunix/todowai/issues/24) | Upcoming list in Next Action, labeled by source | Claude | [#93](https://github.com/sunix/todowai/pull/93) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded

@@ -127,10 +127,10 @@ Read-only awareness of what's already planned.
   - [x] Events from two or more feeds are correctly merged and de-duplicated by time
   - [x] A failing feed does not block or crash the fetch of the others
 
-- **Upcoming list in Next Action, labeled by source** (S) — https://github.com/sunix/todowai/issues/24
-  Show merged upcoming events in the Next Action view, each labeled with its source calendar (e.g. 'Work', 'Personal').
-  - [ ] Each event displays its source label
-  - [ ] List updates when calendar feeds are added, removed, or refreshed
+- **Upcoming list in Next Action, labeled by source** (S) — https://github.com/sunix/todowai/issues/24 — *Merged (#93).*
+  Show merged upcoming events in the Next Action view, each labeled with its source calendar (e.g. 'Work', 'Personal'). Fetched once at startup plus an explicit "Refresh" button, matching the app's existing explicit-refresh convention. Verified live against a real Google Calendar feed.
+  - [x] Each event displays its source label
+  - [x] List updates when calendar feeds are added, removed, or refreshed
 
 
 ## M5 — Projects & Horizon
