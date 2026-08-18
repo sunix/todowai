@@ -107,10 +107,10 @@ The moment-to-moment decision-support loop.
   - [x] Confirm adds the item to today's plan; nothing is auto-added without confirmation
   - [x] Rejecting/asking for another suggestion produces a different candidate
 
-- **Situational-context small-suggestion behavior** (M) — https://github.com/sunix/todowai/issues/21
-  When the current status is a situational context rather than a task, bias suggestions toward small, fitting backlog items (e.g. a quick look at a side project, one page of a book) instead of full tasks.
-  - [ ] A situational status like 'coffee break' surfaces a small backlog item, not a large task
-  - [ ] A task-linked status surfaces a normal next-todo suggestion
+- **Situational-context small-suggestion behavior** (M) — https://github.com/sunix/todowai/issues/21 — *Merged (#88).*
+  When the current status is a situational context rather than a task, bias suggestions toward small, fitting backlog items (e.g. a quick look at a side project, one page of a book) instead of full tasks. A new `parse_status()` gives the backend structured knowledge of status.md's `kind` field (previously only raw file content reached the prompt), letting `build_suggestion_prompt` add an explicit small-item bias instruction for situational status while leaving task-linked/unset behavior unchanged.
+  - [x] A situational status like 'coffee break' surfaces a small backlog item, not a large task
+  - [x] A task-linked status surfaces a normal next-todo suggestion
 
 
 ## M4 — Calendar integration
