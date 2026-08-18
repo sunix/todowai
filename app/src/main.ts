@@ -126,9 +126,11 @@ type AppState = {
   captures: CapturedNote[];
   draft: CaptureDraft | null;
   // The alternative AI-proposed outcome (#99): attaching to an existing note instead of filing
-  // a new one. Mutually exclusive with `draft` — only "Let AI propose" can produce this (manual
-  // filing via "File it myself" always creates a new note, unchanged from #16).
-  attachDraft: AttachDraft | null;
+  // a new one. A single capture can produce several of these at once (#101) — e.g. checking off
+  // one task and adding another — each independently editable/confirmable. Only "Let AI propose"
+  // populates this (manual filing via "File it myself" always creates a new note, unchanged from
+  // #16).
+  attachDrafts: AttachDraft[];
   aiConfig: AiConfigView;
   aiProvider: AiProvider;
   aiApiKey: string;
@@ -195,7 +197,7 @@ const state: AppState = {
   conflictChoices: {},
   captures: loadCaptures(),
   draft: null,
-  attachDraft: null,
+  attachDrafts: [],
   aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
   aiProvider: 'anthropic',
   aiApiKey: '',
@@ -274,7 +276,7 @@ function render(): void {
           ? renderCaptureScreen({
               captures: state.captures,
               draft: state.draft,
-              attachDraft: state.attachDraft,
+              attachDrafts: state.attachDrafts,
               notePaths: allNotePaths(state.files, state.subfolder),
               isBusy: state.isBusy,
               busyLabel: state.busyLabel,
@@ -1273,7 +1275,9 @@ function bindCaptureScreen(): void {
         title: capture.text.slice(0, 48),
         content: defaultDraftContent(type, capture.text),
       };
-      state.attachDraft = null;
+      // Filing this capture manually supersedes any AI-proposed actions still pending for it —
+      // leave other captures' pending proposals untouched.
+      state.attachDrafts = state.attachDrafts.filter((draft) => draft.captureId !== capture.id);
       render();
     });
   });
@@ -1287,27 +1291,36 @@ function bindCaptureScreen(): void {
       }
 
       await runRepositoryAction('Asking AI to propose a draft…', async () => {
-        const proposal = await classifyCapture(capture.text);
-        if (proposal.action === 'attach_existing' && proposal.path) {
-          state.attachDraft = {
-            captureId: capture.id,
-            path: proposal.path,
-            operation: proposal.operation ?? 'add_task',
-            taskText: proposal.taskText ?? capture.text,
-            taskIndex: proposal.taskIndex ?? 0,
-            text: proposal.text ?? capture.text,
-          };
-          state.draft = null;
-        } else {
-          const type = proposal.type ?? 'todo';
-          state.draft = {
-            captureId: capture.id,
-            type,
-            title: proposal.title ?? capture.text.slice(0, 48),
-            content: proposal.content ?? defaultDraftContent(type, capture.text),
-          };
-          state.attachDraft = null;
+        // Usually one proposal, but a capture can imply several actions against the same note
+        // (#101, e.g. check off a finished task AND add a new one) — render one attach panel per
+        // attach_existing proposal; only the first new_note proposal (if any) becomes the single
+        // draft panel, since that's a full note editor, not something meant to repeat.
+        const proposals = await classifyCapture(capture.text);
+        const attachDrafts: AttachDraft[] = [];
+        let newDraft: CaptureDraft | null = null;
+        for (const proposal of proposals) {
+          if (proposal.action === 'attach_existing' && proposal.path) {
+            attachDrafts.push({
+              id: crypto.randomUUID(),
+              captureId: capture.id,
+              path: proposal.path,
+              operation: proposal.operation ?? 'add_task',
+              taskText: proposal.taskText ?? capture.text,
+              taskIndex: proposal.taskIndex ?? 0,
+              text: proposal.text ?? capture.text,
+            });
+          } else if (!newDraft) {
+            const type = proposal.type ?? 'todo';
+            newDraft = {
+              captureId: capture.id,
+              type,
+              title: proposal.title ?? capture.text.slice(0, 48),
+              content: proposal.content ?? defaultDraftContent(type, capture.text),
+            };
+          }
         }
+        state.attachDrafts = attachDrafts;
+        state.draft = newDraft;
       });
     });
   });
@@ -1357,103 +1370,128 @@ function bindCaptureScreen(): void {
       const snapshot = await writeFile(path, content);
       state.files = snapshot.files;
       state.pendingChanges = snapshot.pendingChanges;
-      state.captures = state.captures.filter((entry) => entry.id !== draft.captureId);
-      saveCaptures(state.captures);
       state.draft = null;
+      clearCaptureIfFullyResolved(draft.captureId);
       state.selectedFilePath = path;
       state.selectedFileContent = content;
       state.statusMessage = `Saved to Notebook: ${path}.`;
     });
   });
 
-  main.querySelector<HTMLInputElement>('#attach-path')?.addEventListener('input', (event) => {
-    if (!state.attachDraft) {
-      return;
-    }
-    state.attachDraft = { ...state.attachDraft, path: (event.target as HTMLInputElement).value };
-  });
-
-  // Changes which fields are shown, so this re-renders — unlike the plain text inputs below,
-  // which just keep state in sync without disturbing focus/cursor position.
-  main.querySelector<HTMLSelectElement>('#attach-operation')?.addEventListener('change', (event) => {
-    if (!state.attachDraft) {
-      return;
-    }
-    state.attachDraft = { ...state.attachDraft, operation: (event.target as HTMLSelectElement).value as AttachOperation };
-    render();
-  });
-
-  main.querySelector<HTMLInputElement>('#attach-task-text')?.addEventListener('input', (event) => {
-    if (!state.attachDraft) {
-      return;
-    }
-    state.attachDraft = { ...state.attachDraft, taskText: (event.target as HTMLInputElement).value };
-  });
-
-  main.querySelector<HTMLInputElement>('#attach-task-index')?.addEventListener('input', (event) => {
-    if (!state.attachDraft) {
-      return;
-    }
-    const value = Number((event.target as HTMLInputElement).value);
-    state.attachDraft = { ...state.attachDraft, taskIndex: Number.isFinite(value) ? value : 0 };
-  });
-
-  main.querySelector<HTMLTextAreaElement>('#attach-text')?.addEventListener('input', (event) => {
-    if (!state.attachDraft) {
-      return;
-    }
-    state.attachDraft = { ...state.attachDraft, text: (event.target as HTMLTextAreaElement).value };
-  });
-
-  main.querySelector<HTMLButtonElement>('#attach-cancel-button')?.addEventListener('click', () => {
-    state.attachDraft = null;
-    render();
-  });
-
-  main.querySelector<HTMLButtonElement>('#attach-save-button')?.addEventListener('click', async () => {
-    const attachDraft = state.attachDraft;
-    if (!attachDraft) {
-      return;
-    }
-
-    if (!attachDraft.path.trim()) {
-      state.errorMessage = 'Enter or pick a note before confirming.';
-      render();
-      return;
-    }
-    if (attachDraft.operation === 'add_task' && !attachDraft.taskText.trim()) {
-      state.errorMessage = 'Enter the task text before confirming.';
-      render();
-      return;
-    }
-    if (attachDraft.operation === 'append_text' && !attachDraft.text.trim()) {
-      state.errorMessage = 'Enter the text before confirming.';
-      render();
-      return;
-    }
-
-    await runRepositoryAction('Updating note…', async () => {
-      const content = await readFile(attachDraft.path);
-      const separator = content.endsWith('\n') ? '' : '\n';
-      const updated =
-        attachDraft.operation === 'add_task'
-          ? `${content}${separator}- [ ] ${attachDraft.taskText.trim()}\n`
-          : attachDraft.operation === 'check_task'
-            ? setTaskLineDoneAt(content, attachDraft.taskIndex)
-            : `${content}${separator}${attachDraft.text.trim()}\n`;
-
-      const snapshot = await writeFile(attachDraft.path, updated);
-      state.files = snapshot.files;
-      state.pendingChanges = snapshot.pendingChanges;
-      state.captures = state.captures.filter((entry) => entry.id !== attachDraft.captureId);
-      saveCaptures(state.captures);
-      state.attachDraft = null;
-      // The target note's tasks/progress may have changed — refetch rather than let Projects
-      // drift stale until the next full snapshot load.
-      state.projects = await fetchProjects();
-      state.statusMessage = `Updated ${attachDraft.path}.`;
+  main.querySelectorAll<HTMLInputElement>('[data-attach-field="path"]').forEach((input) => {
+    const id = input.dataset.attachId;
+    if (!id) return;
+    input.addEventListener('input', (event) => {
+      updateAttachDraft(id, { path: (event.target as HTMLInputElement).value });
     });
   });
+
+  // Changes which fields are shown below, so this re-renders — unlike the plain text inputs
+  // here, which just keep state in sync without disturbing focus/cursor position.
+  main.querySelectorAll<HTMLSelectElement>('[data-attach-field="operation"]').forEach((select) => {
+    const id = select.dataset.attachId;
+    if (!id) return;
+    select.addEventListener('change', (event) => {
+      updateAttachDraft(id, { operation: (event.target as HTMLSelectElement).value as AttachOperation });
+      render();
+    });
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-attach-field="taskText"]').forEach((input) => {
+    const id = input.dataset.attachId;
+    if (!id) return;
+    input.addEventListener('input', (event) => {
+      updateAttachDraft(id, { taskText: (event.target as HTMLInputElement).value });
+    });
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-attach-field="taskIndex"]').forEach((input) => {
+    const id = input.dataset.attachId;
+    if (!id) return;
+    input.addEventListener('input', (event) => {
+      const value = Number((event.target as HTMLInputElement).value);
+      updateAttachDraft(id, { taskIndex: Number.isFinite(value) ? value : 0 });
+    });
+  });
+
+  main.querySelectorAll<HTMLTextAreaElement>('[data-attach-field="text"]').forEach((textarea) => {
+    const id = textarea.dataset.attachId;
+    if (!id) return;
+    textarea.addEventListener('input', (event) => {
+      updateAttachDraft(id, { text: (event.target as HTMLTextAreaElement).value });
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-attach-cancel]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.attachCancel;
+      state.attachDrafts = state.attachDrafts.filter((draft) => draft.id !== id);
+      render();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-attach-confirm]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.attachConfirm;
+      const attachDraft = state.attachDrafts.find((draft) => draft.id === id);
+      if (!attachDraft) {
+        return;
+      }
+
+      if (!attachDraft.path.trim()) {
+        state.errorMessage = 'Enter or pick a note before confirming.';
+        render();
+        return;
+      }
+      if (attachDraft.operation === 'add_task' && !attachDraft.taskText.trim()) {
+        state.errorMessage = 'Enter the task text before confirming.';
+        render();
+        return;
+      }
+      if (attachDraft.operation === 'append_text' && !attachDraft.text.trim()) {
+        state.errorMessage = 'Enter the text before confirming.';
+        render();
+        return;
+      }
+
+      await runRepositoryAction('Updating note…', async () => {
+        const content = await readFile(attachDraft.path);
+        const separator = content.endsWith('\n') ? '' : '\n';
+        const updated =
+          attachDraft.operation === 'add_task'
+            ? `${content}${separator}- [ ] ${attachDraft.taskText.trim()}\n`
+            : attachDraft.operation === 'check_task'
+              ? setTaskLineDoneAt(content, attachDraft.taskIndex)
+              : `${content}${separator}${attachDraft.text.trim()}\n`;
+
+        const snapshot = await writeFile(attachDraft.path, updated);
+        state.files = snapshot.files;
+        state.pendingChanges = snapshot.pendingChanges;
+        state.attachDrafts = state.attachDrafts.filter((draft) => draft.id !== attachDraft.id);
+        clearCaptureIfFullyResolved(attachDraft.captureId);
+        // The target note's tasks/progress may have changed — refetch rather than let Projects
+        // drift stale until the next full snapshot load.
+        state.projects = await fetchProjects();
+        state.statusMessage = `Updated ${attachDraft.path}.`;
+      });
+    });
+  });
+}
+
+function updateAttachDraft(id: string, changes: Partial<AttachDraft>): void {
+  state.attachDrafts = state.attachDrafts.map((draft) => (draft.id === id ? { ...draft, ...changes } : draft));
+}
+
+// A capture can produce several proposed actions at once (#101) — only drop it from the list once
+// every one of them (the draft panel and every attach panel) has been resolved, so confirming just
+// one of several doesn't make the rest silently disappear along with the capture.
+function clearCaptureIfFullyResolved(captureId: string): void {
+  const stillPending = state.draft?.captureId === captureId || state.attachDrafts.some((draft) => draft.captureId === captureId);
+  if (stillPending) {
+    return;
+  }
+  state.captures = state.captures.filter((entry) => entry.id !== captureId);
+  saveCaptures(state.captures);
 }
 
 async function loadSnapshot(busyLabel: string): Promise<void> {

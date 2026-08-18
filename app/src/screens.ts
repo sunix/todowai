@@ -405,10 +405,13 @@ export type CaptureDraft = {
 // The alternative AI-proposed outcome (#99): rather than a new note, the capture is attached to
 // an existing one instead. All three action-specific fields are always present (not a
 // discriminated union) so editing the operation doesn't require reconstructing the draft —
-// which field is actually used depends on `operation`.
+// which field is actually used depends on `operation`. A single capture can produce several of
+// these at once (#101, e.g. check off one task and add another) — `id` is what distinguishes them
+// from each other, since `captureId` is shared across every action proposed for the same capture.
 export type AttachOperation = 'add_task' | 'check_task' | 'append_text';
 
 export type AttachDraft = {
+  id: string;
   captureId: string;
   path: string;
   operation: AttachOperation;
@@ -420,7 +423,7 @@ export type AttachDraft = {
 type CaptureScreenState = {
   captures: CapturedNote[];
   draft: CaptureDraft | null;
-  attachDraft: AttachDraft | null;
+  attachDrafts: AttachDraft[];
   notePaths: string[];
   isBusy: boolean;
   busyLabel: string;
@@ -433,7 +436,7 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
   const viewState = state ?? {
     captures: [],
     draft: null,
-    attachDraft: null,
+    attachDrafts: [],
     notePaths: [],
     isBusy: false,
     busyLabel: '',
@@ -503,7 +506,7 @@ export function renderCaptureScreen(state?: CaptureScreenState): string {
     <h2 class="section-title capture-list-title">Recently captured</h2>
     <ul class="capture-list">${listHtml}</ul>
     ${viewState.draft ? renderDraftPanel(viewState.draft, viewState.isBusy) : ''}
-    ${viewState.attachDraft ? renderAttachPanel(viewState.attachDraft, viewState.notePaths, viewState.isBusy) : ''}
+    ${viewState.attachDrafts.map((attachDraft) => renderAttachPanel(attachDraft, viewState.notePaths, viewState.isBusy)).join('')}
   `;
 }
 
@@ -541,7 +544,11 @@ const ATTACH_OPERATION_LABELS: Record<AttachOperation, string> = {
   append_text: 'Append text',
 };
 
+// Each proposed action renders its own panel, so element ids are suffixed with the draft's id to
+// stay unique when several are shown at once (#101) — fields are bound in main.ts via
+// data-attach-id/data-attach-field, not these ids (kept only for their <label for> targets).
 function renderAttachPanel(attachDraft: AttachDraft, notePaths: string[], isBusy: boolean): string {
+  const id = attachDraft.id;
   const noteOptions = notePaths.map((path) => `<option value="${escapeHtmlAttribute(path)}"></option>`).join('');
   const operationOptions = (Object.keys(ATTACH_OPERATION_LABELS) as AttachOperation[])
     .map(
@@ -553,17 +560,39 @@ function renderAttachPanel(attachDraft: AttachDraft, notePaths: string[], isBusy
   const operationFieldHtml =
     attachDraft.operation === 'add_task'
       ? `
-        <label class="field-label" for="attach-task-text">Task</label>
-        <input class="text-input" id="attach-task-text" value="${escapeHtmlAttribute(attachDraft.taskText)}" ${isBusy ? 'disabled' : ''}>
+        <label class="field-label" for="attach-task-text-${id}">Task</label>
+        <input
+          class="text-input"
+          id="attach-task-text-${id}"
+          data-attach-id="${id}"
+          data-attach-field="taskText"
+          value="${escapeHtmlAttribute(attachDraft.taskText)}"
+          ${isBusy ? 'disabled' : ''}
+        >
       `
       : attachDraft.operation === 'check_task'
         ? `
-          <label class="field-label" for="attach-task-index">Task index (0-based, as shown on the Projects screen)</label>
-          <input class="text-input" type="number" min="0" id="attach-task-index" value="${attachDraft.taskIndex}" ${isBusy ? 'disabled' : ''}>
+          <label class="field-label" for="attach-task-index-${id}">Task index (0-based, as shown on the Projects screen)</label>
+          <input
+            class="text-input"
+            type="number"
+            min="0"
+            id="attach-task-index-${id}"
+            data-attach-id="${id}"
+            data-attach-field="taskIndex"
+            value="${attachDraft.taskIndex}"
+            ${isBusy ? 'disabled' : ''}
+          >
         `
         : `
-          <label class="field-label" for="attach-text">Text to append</label>
-          <textarea class="text-area" id="attach-text" ${isBusy ? 'disabled' : ''}>${escapeHtml(attachDraft.text)}</textarea>
+          <label class="field-label" for="attach-text-${id}">Text to append</label>
+          <textarea
+            class="text-area"
+            id="attach-text-${id}"
+            data-attach-id="${id}"
+            data-attach-field="text"
+            ${isBusy ? 'disabled' : ''}
+          >${escapeHtml(attachDraft.text)}</textarea>
         `;
 
   return `
@@ -573,21 +602,29 @@ function renderAttachPanel(attachDraft: AttachDraft, notePaths: string[], isBusy
         Nothing is saved until you click "Confirm" — edit anything below first, including which
         note this goes to or what to do there.
       </p>
-      <label class="field-label" for="attach-path">Note</label>
+      <label class="field-label" for="attach-path-${id}">Note</label>
       <input
         class="text-input"
-        id="attach-path"
-        list="attach-note-suggestions"
+        id="attach-path-${id}"
+        data-attach-id="${id}"
+        data-attach-field="path"
+        list="attach-note-suggestions-${id}"
         value="${escapeHtmlAttribute(attachDraft.path)}"
         ${isBusy ? 'disabled' : ''}
       >
-      <datalist id="attach-note-suggestions">${noteOptions}</datalist>
-      <label class="field-label" for="attach-operation">Action</label>
-      <select class="text-input" id="attach-operation" ${isBusy ? 'disabled' : ''}>${operationOptions}</select>
+      <datalist id="attach-note-suggestions-${id}">${noteOptions}</datalist>
+      <label class="field-label" for="attach-operation-${id}">Action</label>
+      <select
+        class="text-input"
+        id="attach-operation-${id}"
+        data-attach-id="${id}"
+        data-attach-field="operation"
+        ${isBusy ? 'disabled' : ''}
+      >${operationOptions}</select>
       ${operationFieldHtml}
       <div class="button-row">
-        <button class="primary-button" id="attach-save-button" ${isBusy ? 'disabled' : ''}>Confirm</button>
-        <button class="secondary-button" id="attach-cancel-button" ${isBusy ? 'disabled' : ''}>Cancel</button>
+        <button class="primary-button" data-attach-confirm="${id}" ${isBusy ? 'disabled' : ''}>Confirm</button>
+        <button class="secondary-button" data-attach-cancel="${id}" ${isBusy ? 'disabled' : ''}>Cancel</button>
       </div>
     </article>
   `;

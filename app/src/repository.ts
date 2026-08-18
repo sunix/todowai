@@ -240,8 +240,10 @@ export async function setAiConfig(config: AiConfigInput | null): Promise<AiConfi
   });
 }
 
-export async function classifyCapture(text: string): Promise<CaptureProposal> {
-  return requestJson<CaptureProposal>('/ai/classify', {
+// A capture can imply more than one action against the same note (#101) — e.g. checking off a
+// finished task while also adding a new one — so this is a list, usually of length 1.
+export async function classifyCapture(text: string): Promise<CaptureProposal[]> {
+  return requestJson<CaptureProposal[]>('/ai/classify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
