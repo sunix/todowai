@@ -275,12 +275,20 @@ export async function fetchUpcomingEvents(): Promise<UpcomingEvent[]> {
 // A read-only projection over whatever notes already carry `type: project` frontmatter (see
 // backend/src/projects.rs) — the markdown stays the source of truth; editing a project's
 // status/progress happens by editing its note directly in Notebook, not through this endpoint.
+// Parsed from plain `- [ ]`/`- [x]` markdown checkboxes in the note's body (#95) — Obsidian's
+// own native task convention, not new frontmatter.
+export type ProjectTask = {
+  text: string;
+  done: boolean;
+};
+
 export type Project = {
   path: string;
   name: string;
   status: string;
   progress: number;
   meta: string;
+  tasks: ProjectTask[];
 };
 
 export async function fetchProjects(): Promise<Project[]> {

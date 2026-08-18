@@ -124,6 +124,33 @@ export function renderProjectsScreen(state?: ProjectsScreenState): string {
                 ${project.meta ? `<p class="project-meta">${escapeHtml(project.meta)}</p>` : ''}
                 <div class="progress-track"><div class="progress-fill" style="width: ${project.progress}%"></div></div>
                 ${
+                  project.tasks.length > 0
+                    ? `
+                      <ul class="task-list">
+                        ${project.tasks
+                          .map(
+                            (task, index) => `
+                              <li class="task-item${task.done ? ' task-done' : ''}">
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    data-toggle-task
+                                    data-project-path="${escapeHtmlAttribute(project.path)}"
+                                    data-task-index="${index}"
+                                    ${task.done ? 'checked' : ''}
+                                    ${viewState.isBusy ? 'disabled' : ''}
+                                  >
+                                  ${escapeHtml(task.text)}
+                                </label>
+                              </li>
+                            `
+                          )
+                          .join('')}
+                      </ul>
+                    `
+                    : ''
+                }
+                ${
                   project.status === 'ai-delegated'
                     ? `<button class="secondary-button" data-review-ai-suggestions>Review AI suggestions →</button>`
                     : ''

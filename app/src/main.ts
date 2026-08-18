@@ -1042,6 +1042,28 @@ async function refreshProjects(): Promise<void> {
   render();
 }
 
+// Mirrors backend/src/projects.rs's own checklist parsing exactly (- [ ] / - [x] / - [X]) —
+// toggling a task is a plain read-modify-write on the note's raw content via the existing
+// generic file endpoints, not a dedicated mutation endpoint.
+const TASK_LINE_PATTERN = /^(\s*-\s\[)([ xX])(\]\s.*)$/;
+
+function toggleTaskLine(content: string, taskIndex: number): string {
+  let seen = -1;
+  const lines = content.split('\n').map((line) => {
+    const match = line.match(TASK_LINE_PATTERN);
+    if (!match) {
+      return line;
+    }
+    seen += 1;
+    if (seen !== taskIndex) {
+      return line;
+    }
+    const isDone = match[2].toLowerCase() === 'x';
+    return `${match[1]}${isDone ? ' ' : 'x'}${match[3]}`;
+  });
+  return lines.join('\n');
+}
+
 // There's no per-project AI-suggestion queue yet — matching the mockup, this just sends the
 // user to Next Action, where AI suggestions already surface (#20/#21). Every AI-delegated
 // project's card renders this same button, so it's bound by attribute, not a unique id.
@@ -1049,6 +1071,25 @@ function bindProjectsScreen(): void {
   main.querySelectorAll<HTMLButtonElement>('[data-review-ai-suggestions]').forEach((button) => {
     button.addEventListener('click', () => {
       navigateTo('next-action');
+    });
+  });
+
+  main.querySelectorAll<HTMLInputElement>('[data-toggle-task]').forEach((checkbox) => {
+    checkbox.addEventListener('change', async () => {
+      const path = checkbox.dataset.projectPath;
+      const taskIndex = Number(checkbox.dataset.taskIndex);
+      if (!path) {
+        return;
+      }
+      await runRepositoryAction('Updating task…', async () => {
+        const content = await readFile(path);
+        const snapshot = await writeFile(path, toggleTaskLine(content, taskIndex));
+        state.files = snapshot.files;
+        state.pendingChanges = snapshot.pendingChanges;
+        // Progress is derived server-side from the updated checklist — refetch rather than
+        // recompute it here, so the two never drift out of sync.
+        state.projects = await fetchProjects();
+      });
     });
   });
 }
