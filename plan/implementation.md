@@ -122,10 +122,10 @@ Read-only awareness of what's already planned.
   - [x] User can add/remove/rename multiple feed entries
   - [x] Configuration persists in the synced repo (not just local device state)
 
-- **ICS feed fetch + parse (read-only, multi-source)** (M) — https://github.com/sunix/todowai/issues/23
-  Fetch and parse each configured calendar feed URL client-side (no OAuth, no write access) and merge events from all configured sources.
-  - [ ] Events from two or more feeds are correctly merged and de-duplicated by time
-  - [ ] A failing feed does not block or crash the fetch of the others
+- **ICS feed fetch + parse (read-only, multi-source)** (M) — https://github.com/sunix/todowai/issues/23 — *Merged (#92).*
+  Fetch and parse each configured calendar feed URL client-side (no OAuth, no write access) and merge events from all configured sources. New `GET /api/calendar/upcoming`, backed by a hand-rolled ICS parser (RFC5545 line unfolding, UTC/all-day dates, TEXT unescaping) — recurring events (RRULE) are explicitly out of scope. Backend-only; no UI yet.
+  - [x] Events from two or more feeds are correctly merged and de-duplicated by time
+  - [x] A failing feed does not block or crash the fetch of the others
 
 - **Upcoming list in Next Action, labeled by source** (S) — https://github.com/sunix/todowai/issues/24
   Show merged upcoming events in the Next Action view, each labeled with its source calendar (e.g. 'Work', 'Personal').
