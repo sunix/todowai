@@ -31,6 +31,7 @@
 | [#23](https://github.com/sunix/todowai/issues/23) | ICS feed fetch + parse (read-only, multi-source) | Claude | [#92](https://github.com/sunix/todowai/pull/92) | Merged |
 | [#24](https://github.com/sunix/todowai/issues/24) | Upcoming list in Next Action, labeled by source | Claude | [#93](https://github.com/sunix/todowai/pull/93) | Merged |
 | [#25](https://github.com/sunix/todowai/issues/25) | Projects view: tracking large tasks & delegated work | Claude | [#94](https://github.com/sunix/todowai/pull/94) | Merged |
+| [#95](https://github.com/sunix/todowai/issues/95) | Project notes: task checklists with auto-derived progress (ad hoc, not in the Phase 3 plan) | Claude | [#97](https://github.com/sunix/todowai/pull/97) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
