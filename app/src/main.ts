@@ -13,6 +13,7 @@ import {
   resolveConflict,
   setAiConfig,
   setRemote,
+  suggestNextAction,
   syncPull,
   syncPush,
   writeFile,
@@ -131,6 +132,13 @@ type AppState = {
   statusEditKind: CurrentStatus['kind'];
   statusEditLabel: string;
   statusEditTaskPath: string;
+  // The AI next-todo suggestion engine (#20). suggestion is null until requested; rejected
+  // holds every suggestion shown and turned down this session (cleared on Confirm), sent back
+  // to the backend so it steers away from repeating them. todayPlan is the persistent list
+  // Confirm appends to, stored the same way currentStatus is (a well-known synced file).
+  suggestion: string | null;
+  rejectedSuggestions: string[];
+  todayPlan: string[];
 };
 
 const state: AppState = {
@@ -176,6 +184,9 @@ const state: AppState = {
   statusEditKind: 'situational',
   statusEditLabel: '',
   statusEditTaskPath: '',
+  suggestion: null,
+  rejectedSuggestions: [],
+  todayPlan: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -250,6 +261,9 @@ function render(): void {
                 editLabel: state.statusEditLabel,
                 editTaskPath: state.statusEditTaskPath,
                 taskPathSuggestions: taskPathSuggestions(state.files, state.subfolder),
+                suggestion: state.suggestion,
+                todayPlan: state.todayPlan,
+                aiConfigured: state.aiConfig.configured,
                 isBusy: state.isBusy,
                 busyLabel: state.busyLabel,
                 statusMessage: state.statusMessage,
@@ -308,7 +322,10 @@ renderSyncIndicator();
 // button click like the superseded browser-only flow did.
 // Chained rather than fired in parallel — state.subfolder (needed to build the status file's
 // path) is only known once the snapshot resolves.
-void loadSnapshot('Connecting to backend…').then(() => refreshCurrentStatus());
+void loadSnapshot('Connecting to backend…').then(() => {
+  void refreshCurrentStatus();
+  void refreshTodayPlan();
+});
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
 // change, so a single fetch on startup is enough — no need to re-poll like sync status does.
@@ -856,6 +873,34 @@ async function refreshCurrentStatus(): Promise<void> {
   render();
 }
 
+const TODAY_PLAN_FILE_NAME = 'today.md';
+
+function todayPlanFilePath(subfolder: string): string {
+  return `${subfolder}/${TODAY_PLAN_FILE_NAME}`;
+}
+
+// A single `items` list field via #18's frontmatter parser — no per-entry file, no date-bucket
+// logic (out of scope here; see #20's AC, which only asks that Confirm adds to the list).
+function parseTodayPlan(content: string): string[] {
+  const { frontmatter } = parseFrontmatter(content);
+  const items = getFrontmatterValue(frontmatter, 'items');
+  return Array.isArray(items) ? items : [];
+}
+
+function serializeTodayPlan(items: string[]): string {
+  return serializeFrontmatter({ frontmatter: [['items', items]], body: '' });
+}
+
+async function refreshTodayPlan(): Promise<void> {
+  try {
+    const content = await readFile(todayPlanFilePath(state.subfolder));
+    state.todayPlan = parseTodayPlan(content);
+  } catch {
+    state.todayPlan = [];
+  }
+  render();
+}
+
 function bindNextActionScreen(): void {
   main.querySelector<HTMLButtonElement>('#status-change-button')?.addEventListener('click', () => {
     const current = state.currentStatus;
@@ -915,6 +960,42 @@ function bindNextActionScreen(): void {
       state.currentStatus = status;
       state.isEditingStatus = false;
       state.statusMessage = 'Status updated.';
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#suggestion-request-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Asking AI for a suggestion…', async () => {
+      const result = await suggestNextAction(state.rejectedSuggestions);
+      state.suggestion = result.suggestion;
+    });
+  });
+
+  // The rejected suggestion is remembered (not just discarded) so the next request can ask the
+  // backend to steer away from repeating it — see suggestNextAction's excludedSuggestions.
+  main.querySelector<HTMLButtonElement>('#suggestion-another-button')?.addEventListener('click', async () => {
+    if (state.suggestion) {
+      state.rejectedSuggestions = [...state.rejectedSuggestions, state.suggestion];
+    }
+    await runRepositoryAction('Asking AI for another suggestion…', async () => {
+      const result = await suggestNextAction(state.rejectedSuggestions);
+      state.suggestion = result.suggestion;
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#suggestion-confirm-button')?.addEventListener('click', async () => {
+    const suggestion = state.suggestion;
+    if (!suggestion) {
+      return;
+    }
+    await runRepositoryAction("Adding to today's plan…", async () => {
+      const nextPlan = [...state.todayPlan, suggestion];
+      const snapshot = await writeFile(todayPlanFilePath(state.subfolder), serializeTodayPlan(nextPlan));
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+      state.todayPlan = nextPlan;
+      state.suggestion = null;
+      state.rejectedSuggestions = [];
+      state.statusMessage = "Added to today's plan.";
     });
   });
 }

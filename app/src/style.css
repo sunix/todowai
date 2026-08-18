@@ -317,6 +317,46 @@ main {
   font-weight: 600;
 }
 
+.suggestion-card {
+  margin-top: 16px;
+}
+
+.suggestion-tag {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.suggestion-text {
+  font-size: 16px;
+  margin: 0;
+}
+
+.suggestion-card .button-row {
+  margin-top: 16px;
+}
+
+.next-action-plan-title {
+  margin-top: 24px;
+}
+
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plan-list li {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
 .status-edit-card {
   margin-top: 16px;
 }
