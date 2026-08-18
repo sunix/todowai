@@ -163,8 +163,11 @@ fn build_capture_prompt(text: &str, existing_notes: &[ExistingNote]) -> String {
     }
 
     prompt.push_str(
-        "Respond with ONLY a single JSON object, no other text, no markdown code fences, matching \
-         exactly one of these shapes:\n\n\
+        "Respond with ONLY a JSON array of one or more action objects, no other text, no markdown \
+         code fences. Usually the array will have exactly one element, but propose more than one \
+         when the capture clearly implies several distinct actions against the same note — e.g. \
+         checking off a task that's now done AND adding a new one, or appending some context AND \
+         adding a task. Each element matches exactly one of these shapes:\n\n\
          To create a new note:\n\
          {\"action\": \"new_note\", \"type\": \"todo | meeting | status | project\", \"title\": \"short descriptive title, under 60 characters\", \"content\": \"the note body, including a YAML frontmatter block (---\\ntype: <type>\\nstatus: backlog\\n---\\n\\n) followed by the captured text, lightly cleaned up if it helps\"}\n\n\
          To attach to an existing note by adding a new task:\n\
@@ -173,7 +176,9 @@ fn build_capture_prompt(text: &str, existing_notes: &[ExistingNote]) -> String {
          (only when that note's checklist already has one matching what the capture describes):\n\
          {\"action\": \"attach_existing\", \"path\": \"<path>\", \"operation\": \"check_task\", \"taskIndex\": <0-based index from that note's checklist>}\n\n\
          To attach to an existing note that has no checklist by appending free text:\n\
-         {\"action\": \"attach_existing\", \"path\": \"<path>\", \"operation\": \"append_text\", \"text\": \"...\"}",
+         {\"action\": \"attach_existing\", \"path\": \"<path>\", \"operation\": \"append_text\", \"text\": \"...\"}\n\n\
+         Example with two actions against the same note:\n\
+         [{\"action\": \"attach_existing\", \"path\": \"todowai/backlog/parisjug.md\", \"operation\": \"check_task\", \"taskIndex\": 0}, {\"action\": \"attach_existing\", \"path\": \"todowai/backlog/parisjug.md\", \"operation\": \"add_task\", \"taskText\": \"Confirm the speaker\"}]",
     );
 
     prompt
@@ -269,14 +274,17 @@ fn resolve_base_url(config: &AiConfig, default_base_url: &str) -> String {
         .unwrap_or_else(|| default_base_url.to_string())
 }
 
+/// A capture can imply more than one action against the same note (#101) — e.g. checking off a
+/// finished task while also adding a new one — so this returns every proposed action, not just
+/// one. Usually a single-element vec.
 pub async fn propose_capture_filing(
     text: &str,
     existing_notes: &[ExistingNote],
     config: &AiConfig,
-) -> Result<CaptureProposal, AiError> {
+) -> Result<Vec<CaptureProposal>, AiError> {
     let prompt = build_capture_prompt(text, existing_notes);
     let raw = complete(&prompt, config).await?;
-    parse_capture_proposal(&raw)
+    parse_capture_proposals(&raw)
 }
 
 /// A single note considered for a next-action suggestion — just enough to describe it in a
@@ -553,9 +561,28 @@ fn strip_json_fence(raw: &str) -> &str {
     text
 }
 
-fn parse_capture_proposal(raw: &str) -> Result<CaptureProposal, AiError> {
-    serde_json::from_str(strip_json_fence(raw))
-        .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))
+/// Accepts either the requested JSON array shape or a single bare object (some models ignore the
+/// "respond with an array" instruction) — wrapping the latter in a one-element vec keeps every
+/// caller dealing with just one shape.
+fn parse_capture_proposals(raw: &str) -> Result<Vec<CaptureProposal>, AiError> {
+    let value: serde_json::Value = serde_json::from_str(strip_json_fence(raw))
+        .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))?;
+
+    let proposals: Vec<CaptureProposal> = match value {
+        serde_json::Value::Array(_) => serde_json::from_value(value)
+            .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))?,
+        other => {
+            let proposal: CaptureProposal = serde_json::from_value(other)
+                .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))?;
+            vec![proposal]
+        }
+    };
+
+    if proposals.is_empty() {
+        return Err(AiError::Request("the model returned no proposed actions".to_string()));
+    }
+
+    Ok(proposals)
 }
 
 fn parse_suggestion(raw: &str) -> Result<NextActionSuggestion, AiError> {
@@ -568,49 +595,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_capture_proposal_accepts_a_new_note_shape() {
-        let result = parse_capture_proposal(
+    fn parse_capture_proposals_accepts_a_bare_new_note_object() {
+        let result = parse_capture_proposals(
             r#"{"action": "new_note", "type": "todo", "title": "Client X migration", "content": "---\ntype: todo\nstatus: backlog\n---\n\nbody"}"#,
         )
         .unwrap();
-        assert_eq!(result.action, "new_note");
-        assert_eq!(result.note_type.as_deref(), Some("todo"));
-        assert_eq!(result.title.as_deref(), Some("Client X migration"));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, "new_note");
+        assert_eq!(result[0].note_type.as_deref(), Some("todo"));
+        assert_eq!(result[0].title.as_deref(), Some("Client X migration"));
     }
 
     #[test]
-    fn parse_capture_proposal_accepts_an_attach_existing_add_task_shape() {
-        let result = parse_capture_proposal(
-            r#"{"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "add_task", "taskText": "Book the venue"}"#,
+    fn parse_capture_proposals_accepts_a_single_element_array() {
+        let result = parse_capture_proposals(
+            r#"[{"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "add_task", "taskText": "Book the venue"}]"#,
         )
         .unwrap();
-        assert_eq!(result.action, "attach_existing");
-        assert_eq!(result.path.as_deref(), Some("todowai/backlog/parisjug.md"));
-        assert_eq!(result.operation.as_deref(), Some("add_task"));
-        assert_eq!(result.task_text.as_deref(), Some("Book the venue"));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, "attach_existing");
+        assert_eq!(result[0].path.as_deref(), Some("todowai/backlog/parisjug.md"));
+        assert_eq!(result[0].operation.as_deref(), Some("add_task"));
+        assert_eq!(result[0].task_text.as_deref(), Some("Book the venue"));
     }
 
     #[test]
-    fn parse_capture_proposal_accepts_an_attach_existing_check_task_shape() {
-        let result = parse_capture_proposal(
+    fn parse_capture_proposals_accepts_an_attach_existing_check_task_shape() {
+        let result = parse_capture_proposals(
             r#"{"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "check_task", "taskIndex": 2}"#,
         )
         .unwrap();
-        assert_eq!(result.operation.as_deref(), Some("check_task"));
-        assert_eq!(result.task_index, Some(2));
+        assert_eq!(result[0].operation.as_deref(), Some("check_task"));
+        assert_eq!(result[0].task_index, Some(2));
     }
 
     #[test]
-    fn parse_capture_proposal_strips_markdown_fences() {
+    fn parse_capture_proposals_strips_markdown_fences() {
         let raw = "```json\n{\"action\": \"new_note\", \"type\": \"meeting\", \"title\": \"Standup\", \"content\": \"body\"}\n```";
-        let result = parse_capture_proposal(raw).unwrap();
-        assert_eq!(result.note_type.as_deref(), Some("meeting"));
-        assert_eq!(result.title.as_deref(), Some("Standup"));
+        let result = parse_capture_proposals(raw).unwrap();
+        assert_eq!(result[0].note_type.as_deref(), Some("meeting"));
+        assert_eq!(result[0].title.as_deref(), Some("Standup"));
     }
 
     #[test]
-    fn parse_capture_proposal_rejects_non_json() {
-        assert!(parse_capture_proposal("not json at all").is_err());
+    fn parse_capture_proposals_rejects_non_json() {
+        assert!(parse_capture_proposals("not json at all").is_err());
+    }
+
+    #[test]
+    fn parse_capture_proposals_rejects_an_empty_array() {
+        assert!(parse_capture_proposals("[]").is_err());
+    }
+
+    #[test]
+    fn parse_capture_proposals_accepts_multiple_actions_against_the_same_note() {
+        let raw = r#"[
+            {"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "check_task", "taskIndex": 0},
+            {"action": "attach_existing", "path": "todowai/backlog/parisjug.md", "operation": "add_task", "taskText": "Confirm the speaker"}
+        ]"#;
+        let result = parse_capture_proposals(raw).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].operation.as_deref(), Some("check_task"));
+        assert_eq!(result[0].task_index, Some(0));
+        assert_eq!(result[1].operation.as_deref(), Some("add_task"));
+        assert_eq!(result[1].task_text.as_deref(), Some("Confirm the speaker"));
     }
 
     #[test]

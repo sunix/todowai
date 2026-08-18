@@ -292,7 +292,7 @@ async fn classify_capture(
     State(repository): State<SharedRepository>,
     State(ai_config): State<SharedAiConfig>,
     Json(body): Json<ClassifyRequest>,
-) -> Result<Json<CaptureProposal>, RepoError> {
+) -> Result<Json<Vec<CaptureProposal>>, RepoError> {
     let config = {
         let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clone()
@@ -318,8 +318,8 @@ async fn classify_capture(
     })
     .await?;
 
-    let proposal = crate::ai::propose_capture_filing(&body.text, &existing_notes, &config).await?;
-    Ok(Json(proposal))
+    let proposals = crate::ai::propose_capture_filing(&body.text, &existing_notes, &config).await?;
+    Ok(Json(proposals))
 }
 
 /// Backs the Model field's suggestion dropdown in Settings — queries the *saved* config's
