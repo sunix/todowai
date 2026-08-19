@@ -16,6 +16,7 @@ import {
   resolveConflict,
   setAiConfig,
   setRemote,
+  suggestHorizonReassignments,
   suggestNextAction,
   syncPull,
   syncPush,
@@ -26,6 +27,7 @@ import {
   type ConflictInfo,
   type ConflictSide,
   type HorizonItem,
+  type HorizonReassignmentSuggestion,
   type HorizonValue,
   type Project,
   type SyncStatus,
@@ -177,6 +179,10 @@ type AppState = {
   // its column's list (a note that existed before ordering was ever touched) sorts after every
   // explicitly-ordered one, in whatever order the backend returned it.
   horizonOrder: HorizonOrder;
+  // AI-proposed reassignments (#27) — never applied on their own; Confirm writes the note's
+  // `horizon:` field the same way a manual drag does, Dismiss just drops the suggestion from
+  // this list, leaving the item untouched.
+  horizonSuggestions: HorizonReassignmentSuggestion[];
 };
 
 const state: AppState = {
@@ -231,6 +237,7 @@ const state: AppState = {
   projects: [],
   horizonItems: [],
   horizonOrder: {},
+  horizonSuggestions: [],
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -328,10 +335,12 @@ function render(): void {
               : screen === 'horizon'
                 ? renderHorizonScreen({
                     items: orderedHorizonItems(state.horizonItems, state.horizonOrder),
+                    suggestions: state.horizonSuggestions,
                     isBusy: state.isBusy,
                     busyLabel: state.busyLabel,
                     statusMessage: state.statusMessage,
                     errorMessage: state.errorMessage,
+                    aiConfigured: state.aiConfig.configured,
                   })
                 : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
@@ -1381,6 +1390,36 @@ function bindHorizonScreen(): void {
       }
       const horizon = (column.dataset.horizonDrop ?? '') as HorizonValue | '';
       await moveHorizonItem(path, horizon, null, false);
+    });
+  });
+
+  main.querySelector<HTMLButtonElement>('#suggest-horizon-reassignments-button')?.addEventListener('click', async () => {
+    await runRepositoryAction('Asking AI to review horizons…', async () => {
+      state.horizonSuggestions = await suggestHorizonReassignments();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-dismiss-horizon-suggestion]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const path = button.dataset.dismissHorizonSuggestion;
+      // AC: dismissing leaves the item's horizon unchanged — this only drops the suggestion
+      // from the list, no note write at all.
+      state.horizonSuggestions = state.horizonSuggestions.filter((suggestion) => suggestion.path !== path);
+      render();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-confirm-horizon-suggestion]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const path = button.dataset.confirmHorizonSuggestion;
+      const suggestion = state.horizonSuggestions.find((entry) => entry.path === path);
+      if (!suggestion) {
+        return;
+      }
+      state.horizonSuggestions = state.horizonSuggestions.filter((entry) => entry.path !== suggestion.path);
+      // Confirming writes the note's `horizon:` field exactly like a manual drag would —
+      // appended to the end of the target column's order, same as the column-drop case.
+      await moveHorizonItem(suggestion.path, suggestion.to, null, false);
     });
   });
 }

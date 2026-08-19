@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{FromRef, Query, State};
@@ -5,7 +6,10 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use crate::ai::{AiConfig, AiConfigView, BacklogNote, CaptureProposal, ExistingNote, NextActionSuggestion};
+use crate::ai::{
+    AiConfig, AiConfigView, BacklogNote, CaptureProposal, ExistingNote, HorizonCandidate, HorizonReassignmentSuggestion,
+    NextActionSuggestion,
+};
 use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
 use crate::horizon::HorizonItem;
@@ -84,6 +88,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/classify", post(classify_capture))
         .route("/api/ai/models", get(list_ai_models))
         .route("/api/ai/suggest-next-action", post(suggest_next_action))
+        .route("/api/ai/suggest-horizon-reassignments", post(suggest_horizon_reassignments))
         .route("/api/calendar/upcoming", get(upcoming_calendar_events))
         .route("/api/projects", get(list_projects))
         .route("/api/horizon", get(list_horizon_items))
@@ -466,6 +471,53 @@ async fn list_horizon_items(State(repository): State<SharedRepository>) -> Resul
     })
     .await?;
     Ok(Json(items))
+}
+
+async fn suggest_horizon_reassignments(
+    State(repository): State<SharedRepository>,
+    State(ai_config): State<SharedAiConfig>,
+) -> Result<Json<Vec<HorizonReassignmentSuggestion>>, RepoError> {
+    let config = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    let config = config.ok_or(RepoError::AiNotConfigured)?;
+
+    let candidates: Vec<HorizonCandidate> = with_repository(repository, |repo| {
+        let prefix = format!("{}/", repo.subfolder());
+        let candidate_paths: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&prefix) && path.ends_with(".md"))
+            .take(MAX_HORIZON_CANDIDATES)
+            .collect();
+        let files: Vec<(String, String)> = candidate_paths
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some((path, content))
+            })
+            .collect();
+
+        let items = crate::horizon::scan_horizon_items(&files);
+        let content_by_path: HashMap<String, String> = files.into_iter().collect();
+        let candidates = items
+            .into_iter()
+            // Only items that already have a horizon are eligible for *re*assignment — an
+            // unscheduled note has nothing to be reassigned from (assigning one for the first
+            // time is the drag-and-drop case, out of scope here).
+            .filter(|item| !item.horizon.is_empty())
+            .filter_map(|item| {
+                let content = content_by_path.get(&item.path)?.clone();
+                Some(HorizonCandidate { path: item.path, name: item.name, horizon: item.horizon, content })
+            })
+            .collect();
+        Ok(candidates)
+    })
+    .await?;
+
+    let suggestions = crate::ai::propose_horizon_reassignments(&candidates, &config).await?;
+    Ok(Json(suggestions))
 }
 
 #[cfg(test)]
@@ -871,5 +923,18 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert!(items.iter().any(|item| item.kind == "todo" && item.horizon == "week"));
         assert!(items.iter().any(|item| item.kind == "project" && item.horizon == "month"));
+    }
+
+    #[tokio::test]
+    async fn suggest_horizon_reassignments_without_a_configured_provider_is_a_client_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app
+            .oneshot(Request::builder().method("POST").uri("/api/ai/suggest-horizon-reassignments").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

@@ -7,6 +7,7 @@ import type {
   ConflictInfo,
   ConflictSide,
   HorizonItem,
+  HorizonReassignmentSuggestion,
   HorizonValue,
   Project,
   RepositoryChange,
@@ -199,16 +200,30 @@ const HORIZON_KIND_LABELS: Record<HorizonItem['kind'], string> = {
   project: 'Project',
 };
 
+function horizonLabel(value: HorizonValue): string {
+  return HORIZON_COLUMNS.find((column) => column.value === value)?.label ?? value;
+}
+
 type HorizonScreenState = {
   items: HorizonItem[];
+  suggestions: HorizonReassignmentSuggestion[];
   isBusy: boolean;
   busyLabel: string;
   statusMessage: string;
   errorMessage: string;
+  aiConfigured: boolean;
 };
 
 export function renderHorizonScreen(state?: HorizonScreenState): string {
-  const viewState = state ?? { items: [], isBusy: false, busyLabel: '', statusMessage: '', errorMessage: '' };
+  const viewState = state ?? {
+    items: [],
+    suggestions: [],
+    isBusy: false,
+    busyLabel: '',
+    statusMessage: '',
+    errorMessage: '',
+    aiConfigured: false,
+  };
 
   const columnsHtml = HORIZON_COLUMNS.map((column) => {
     const items = viewState.items.filter((item) => item.horizon === column.value);
@@ -258,8 +273,54 @@ export function renderHorizonScreen(state?: HorizonScreenState): string {
         ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
         : ''
     }
+    <div class="button-row">
+      <button
+        class="secondary-button"
+        id="suggest-horizon-reassignments-button"
+        ${viewState.isBusy || !viewState.aiConfigured ? 'disabled' : ''}
+        title="${viewState.aiConfigured ? '' : 'Configure an AI provider in Settings first'}"
+      >Suggest reassignments</button>
+    </div>
+    ${renderHorizonSuggestions(viewState.suggestions, viewState.isBusy)}
     <div class="horizon-grid">${columnsHtml}</div>
   `;
+}
+
+// AI-proposed, unapplied until Confirm (#27) — Dismiss leaves the item's horizon untouched,
+// matching the confirm-first pattern used everywhere else AI touches the vault.
+function renderHorizonSuggestions(suggestions: HorizonReassignmentSuggestion[], isBusy: boolean): string {
+  if (suggestions.length === 0) {
+    return '';
+  }
+
+  const cardsHtml = suggestions
+    .map(
+      (suggestion) => `
+        <article class="card horizon-suggestion-card">
+          <div class="suggestion-tag">AI-proposed — needs your confirmation</div>
+          <p class="suggestion-text">
+            Move <strong>${escapeHtml(suggestion.name)}</strong> from ${horizonLabel(suggestion.from)} to
+            ${horizonLabel(suggestion.to)}
+          </p>
+          <p class="section-copy">${escapeHtml(suggestion.reason)}</p>
+          <div class="button-row">
+            <button
+              class="primary-button"
+              data-confirm-horizon-suggestion="${escapeHtmlAttribute(suggestion.path)}"
+              ${isBusy ? 'disabled' : ''}
+            >Confirm</button>
+            <button
+              class="secondary-button"
+              data-dismiss-horizon-suggestion="${escapeHtmlAttribute(suggestion.path)}"
+              ${isBusy ? 'disabled' : ''}
+            >Dismiss</button>
+          </div>
+        </article>
+      `
+    )
+    .join('');
+
+  return `<div class="horizon-suggestions">${cardsHtml}</div>`;
 }
 
 // The single, persistent "what am I doing right now" value (specification/specs.md) — distinct
