@@ -142,10 +142,10 @@ Mid-to-long-range planning views.
   - [x] Projects display status (e.g. blocked, in progress, AI-delegated) and progress
   - [x] An AI-delegated project links to its pending suggestions for review
 
-- **Horizon view: week/month/year grouping with manual move** (M) — https://github.com/sunix/todowai/issues/26
-  Build the Horizon screen: todos/projects grouped into This Week / This Month(s) / This Year columns, with a manual way to move an item between horizons.
-  - [ ] Items display in the correct column based on their horizon tag
-  - [ ] Moving an item updates its stored horizon and re-renders it in the new column
+- **Horizon view: week/month/year grouping with manual move** (M) — https://github.com/sunix/todowai/issues/26 — *Merged (#103).*
+  Build the Horizon screen: todos/projects grouped into This Week / This Month(s) / This Year columns, with a manual way to move an item between horizons. Also includes an Unscheduled column for untagged notes, and (added mid-review after testing feedback) drag-and-drop instead of a per-card select, plus priority reordering within a column via a frontend-only `horizon-order.json` manifest.
+  - [x] Items display in the correct column based on their horizon tag
+  - [x] Moving an item updates its stored horizon and re-renders it in the new column
 
 - **Horizon: AI-suggested reassignment with confirm/dismiss** (M) — https://github.com/sunix/todowai/issues/27
   Implement AI-suggested horizon reassignments (e.g. promoting a stale weekly item to monthly), requiring explicit user confirmation or dismissal.
