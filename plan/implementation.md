@@ -147,10 +147,10 @@ Mid-to-long-range planning views.
   - [x] Items display in the correct column based on their horizon tag
   - [x] Moving an item updates its stored horizon and re-renders it in the new column
 
-- **Horizon: AI-suggested reassignment with confirm/dismiss** (M) — https://github.com/sunix/todowai/issues/27
+- **Horizon: AI-suggested reassignment with confirm/dismiss** (M) — https://github.com/sunix/todowai/issues/27 — *Merged (#104).*
   Implement AI-suggested horizon reassignments (e.g. promoting a stale weekly item to monthly), requiring explicit user confirmation or dismissal.
-  - [ ] A suggested reassignment is clearly marked as AI-proposed and unapplied until confirmed
-  - [ ] Dismissing a suggestion leaves the item's horizon unchanged
+  - [x] A suggested reassignment is clearly marked as AI-proposed and unapplied until confirmed
+  - [x] Dismissing a suggestion leaves the item's horizon unchanged
 
 
 ## M6 — Meetings

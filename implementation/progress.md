@@ -36,6 +36,7 @@
 | [#99](https://github.com/sunix/todowai/issues/99) | Capture: AI-proposed attachment to an existing note (ad hoc, not in the Phase 3 plan) | Claude | [#100](https://github.com/sunix/todowai/pull/100) | Merged |
 | [#101](https://github.com/sunix/todowai/issues/101) | Capture: AI-proposed multiple actions from a single capture (ad hoc, not in the Phase 3 plan) | Claude | [#102](https://github.com/sunix/todowai/pull/102) | Merged |
 | [#26](https://github.com/sunix/todowai/issues/26) | Horizon view: week/month/year grouping with manual move | Claude | [#103](https://github.com/sunix/todowai/pull/103) | Merged |
+| [#27](https://github.com/sunix/todowai/issues/27) | Horizon: AI-suggested reassignment with confirm/dismiss | Claude | [#104](https://github.com/sunix/todowai/pull/104) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
