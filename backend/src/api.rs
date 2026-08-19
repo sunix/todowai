@@ -13,6 +13,7 @@ use crate::ai::{
 use crate::calendar::{CalendarEvent, CalendarFeedConfig};
 use crate::error::RepoError;
 use crate::horizon::HorizonItem;
+use crate::meetings::Meeting;
 use crate::projects::Project;
 use crate::repository::{
     CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
@@ -92,6 +93,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/calendar/upcoming", get(upcoming_calendar_events))
         .route("/api/projects", get(list_projects))
         .route("/api/horizon", get(list_horizon_items))
+        .route("/api/meetings", get(list_meetings))
         .with_state(state)
 }
 
@@ -471,6 +473,32 @@ async fn list_horizon_items(State(repository): State<SharedRepository>) -> Resul
     })
     .await?;
     Ok(Json(items))
+}
+
+/// Bounds how many notes get read looking for `type: meeting` frontmatter — same rationale and
+/// cap as MAX_PROJECT_CANDIDATES/MAX_HORIZON_CANDIDATES above.
+const MAX_MEETING_CANDIDATES: usize = 200;
+
+async fn list_meetings(State(repository): State<SharedRepository>) -> Result<Json<Vec<Meeting>>, RepoError> {
+    let meetings = with_repository(repository, |repo| {
+        let prefix = format!("{}/", repo.subfolder());
+        let candidates: Vec<String> = repo
+            .list_files()?
+            .into_iter()
+            .filter(|path| path.starts_with(&prefix) && path.ends_with(".md"))
+            .take(MAX_MEETING_CANDIDATES)
+            .collect();
+        let files: Vec<(String, String)> = candidates
+            .into_iter()
+            .filter_map(|path| {
+                let content = repo.read_file(&path).ok()?;
+                Some((path, content))
+            })
+            .collect();
+        Ok(crate::meetings::scan_meetings(&files))
+    })
+    .await?;
+    Ok(Json(meetings))
 }
 
 async fn suggest_horizon_reassignments(
@@ -936,5 +964,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_meetings_finds_meeting_notes_but_not_other_types() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("todowai/backlog")).unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/2026-08-10-standup.md"),
+            "---\ntype: meeting\ndate: 2026-08-10\n---\n\nDiscussed Q3 roadmap.",
+        )
+        .unwrap();
+        std::fs::write(temp.path().join("todowai/backlog/write-report.md"), "---\ntype: todo\n---\n\nNot a meeting.")
+            .unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/meetings").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let meetings: Vec<Meeting> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].name, "Standup");
+        assert_eq!(meetings[0].date, "2026-08-10");
     }
 }

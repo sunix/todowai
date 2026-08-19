@@ -9,6 +9,7 @@ import type {
   HorizonItem,
   HorizonReassignmentSuggestion,
   HorizonValue,
+  Meeting,
   Project,
   RepositoryChange,
   RepositoryHistoryEntry,
@@ -808,6 +809,85 @@ function frontmatterSummaryHtml(content: string): string {
     })
     .join('');
   return `<p class="notebook-frontmatter-summary">${chips}</p>`;
+}
+
+type MeetingsScreenState = {
+  meetings: Meeting[];
+  selectedPath: string;
+  selectedContent: string;
+  isBusy: boolean;
+  busyLabel: string;
+  statusMessage: string;
+  errorMessage: string;
+};
+
+// List + preview, matching #28's AC exactly: meeting notes are discovered from `type: meeting`
+// frontmatter (scan_meetings on the backend), not a separate data store, and selecting one shows
+// its frontmatter and body — read-only, reusing frontmatterSummaryHtml (the same Notebook-#14
+// legibility aid) rather than an editable form, since editing a meeting note (like a project's)
+// happens in Notebook, not here.
+export function renderMeetingsScreen(state?: MeetingsScreenState): string {
+  const viewState = state ?? {
+    meetings: [],
+    selectedPath: '',
+    selectedContent: '',
+    isBusy: false,
+    busyLabel: '',
+    statusMessage: '',
+    errorMessage: '',
+  };
+
+  const listHtml =
+    viewState.meetings.length > 0
+      ? viewState.meetings
+          .map(
+            (meeting) => `
+              <li class="tree-row">
+                <button
+                  class="tree-file${meeting.path === viewState.selectedPath ? ' active' : ''}"
+                  data-select-meeting="${escapeHtmlAttribute(meeting.path)}"
+                  ${viewState.isBusy ? 'disabled' : ''}
+                >
+                  ${escapeHtml(meeting.name)}${meeting.date ? ` <span class="meeting-date">${escapeHtml(meeting.date)}</span>` : ''}
+                </button>
+              </li>
+            `
+          )
+          .join('')
+      : '<li class="empty-state">No meeting notes yet — file a capture as a "Meeting" to see it here.</li>';
+
+  const hasSelection = viewState.meetings.some((meeting) => meeting.path === viewState.selectedPath);
+  const previewHtml = hasSelection
+    ? `
+      <p class="notebook-editor-path"><code>${escapeHtml(viewState.selectedPath)}</code></p>
+      ${frontmatterSummaryHtml(viewState.selectedContent)}
+      <div class="meeting-body">${escapeHtml(parseFrontmatter(viewState.selectedContent).body)}</div>
+    `
+    : '<p class="empty-state">Select a meeting from the list to preview it.</p>';
+
+  return `
+    <h1 class="title">${TITLES.meetings}</h1>
+    <p class="placeholder">Meeting notes, discovered from frontmatter — select one to preview it.</p>
+    ${
+      viewState.isBusy
+        ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`
+        : ''
+    }
+    ${
+      viewState.statusMessage
+        ? `<p class="status-message" role="status">${escapeHtml(viewState.statusMessage)}</p>`
+        : ''
+    }
+    ${
+      viewState.errorMessage
+        ? `<p class="error-message" role="alert">${escapeHtml(viewState.errorMessage)}</p>`
+        : ''
+    }
+    <div class="meetings">
+      <ul class="meetings-list tree-root">${listHtml}</ul>
+      <div class="meetings-preview">${previewHtml}</div>
+    </div>
+  `;
 }
 
 export function renderNotebookScreen(state?: NotebookScreenState): string {

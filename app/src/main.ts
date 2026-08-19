@@ -8,6 +8,7 @@ import {
   fetchConfiguredRemotes,
   fetchConflict,
   fetchHorizonItems,
+  fetchMeetings,
   fetchProjects,
   fetchSnapshot,
   fetchSyncStatus,
@@ -29,6 +30,7 @@ import {
   type HorizonItem,
   type HorizonReassignmentSuggestion,
   type HorizonValue,
+  type Meeting,
   type Project,
   type SyncStatus,
   type UpcomingEvent,
@@ -39,6 +41,7 @@ import {
   escapeHtml,
   renderCaptureScreen,
   renderHorizonScreen,
+  renderMeetingsScreen,
   renderNextActionScreen,
   renderNotebookScreen,
   renderProjectsScreen,
@@ -183,6 +186,11 @@ type AppState = {
   // `horizon:` field the same way a manual drag does, Dismiss just drops the suggestion from
   // this list, leaving the item untouched.
   horizonSuggestions: HorizonReassignmentSuggestion[];
+  // A read-only projection over `type: meeting` notes (#28) — selecting one reads its full
+  // content via the existing generic file endpoint; editing happens in Notebook, not here.
+  meetings: Meeting[];
+  selectedMeetingPath: string;
+  selectedMeetingContent: string;
 };
 
 const state: AppState = {
@@ -238,6 +246,9 @@ const state: AppState = {
   horizonItems: [],
   horizonOrder: {},
   horizonSuggestions: [],
+  meetings: [],
+  selectedMeetingPath: '',
+  selectedMeetingContent: '',
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -342,7 +353,17 @@ function render(): void {
                     errorMessage: state.errorMessage,
                     aiConfigured: state.aiConfig.configured,
                   })
-                : renderScreen(screen);
+                : screen === 'meetings'
+                  ? renderMeetingsScreen({
+                      meetings: state.meetings,
+                      selectedPath: state.selectedMeetingPath,
+                      selectedContent: state.selectedMeetingContent,
+                      isBusy: state.isBusy,
+                      busyLabel: state.busyLabel,
+                      statusMessage: state.statusMessage,
+                      errorMessage: state.errorMessage,
+                    })
+                  : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -359,6 +380,8 @@ function render(): void {
     bindProjectsScreen();
   } else if (screen === 'horizon') {
     bindHorizonScreen();
+  } else if (screen === 'meetings') {
+    bindMeetingsScreen();
   }
 }
 
@@ -407,6 +430,7 @@ void loadSnapshot('Connecting to backend…').then(() => {
   void refreshProjects();
   void refreshHorizonItems();
   void refreshHorizonOrder();
+  void refreshMeetings();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -1106,6 +1130,15 @@ async function refreshHorizonItems(): Promise<void> {
   render();
 }
 
+async function refreshMeetings(): Promise<void> {
+  try {
+    state.meetings = await fetchMeetings();
+  } catch {
+    state.meetings = [];
+  }
+  render();
+}
+
 // Keyed by horizon value ("" for Unscheduled, matching HorizonItem.horizon) — each value is that
 // column's item paths in priority order. Nothing on the backend has a notion of order within a
 // column, so this is purely a frontend concern, persisted the same way calendarFeeds is.
@@ -1420,6 +1453,23 @@ function bindHorizonScreen(): void {
       // Confirming writes the note's `horizon:` field exactly like a manual drag would —
       // appended to the end of the target column's order, same as the column-drop case.
       await moveHorizonItem(suggestion.path, suggestion.to, null, false);
+    });
+  });
+}
+
+// Read-only preview (#28) — selecting a meeting just reads its content via the existing generic
+// file endpoint; editing happens in Notebook, not here.
+function bindMeetingsScreen(): void {
+  main.querySelectorAll<HTMLButtonElement>('[data-select-meeting]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const path = button.dataset.selectMeeting;
+      if (!path) {
+        return;
+      }
+      await runRepositoryAction('Loading meeting…', async () => {
+        state.selectedMeetingPath = path;
+        state.selectedMeetingContent = await readFile(path);
+      });
     });
   });
 }
