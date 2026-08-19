@@ -324,3 +324,20 @@ export type HorizonItem = {
 export async function fetchHorizonItems(): Promise<HorizonItem[]> {
   return requestJson<HorizonItem[]>('/horizon');
 }
+
+// What the AI proposes (#27) — kept separate from anything actually being written; Horizon's own
+// Confirm/Dismiss buttons (not this call) are what make a reassignment real, matching the
+// confirm-first pattern used everywhere else AI touches the vault. `from`/`name` are filled in by
+// the backend from the real note, not trusted from the model, so this is self-contained to render
+// directly without cross-referencing horizonItems.
+export type HorizonReassignmentSuggestion = {
+  path: string;
+  name: string;
+  from: HorizonValue;
+  to: HorizonValue;
+  reason: string;
+};
+
+export async function suggestHorizonReassignments(): Promise<HorizonReassignmentSuggestion[]> {
+  return requestJson<HorizonReassignmentSuggestion[]>('/ai/suggest-horizon-reassignments', { method: 'POST' });
+}

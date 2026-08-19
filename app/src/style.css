@@ -799,6 +799,17 @@ main {
   text-decoration: line-through;
 }
 
+.horizon-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.horizon-suggestion-card .suggestion-text {
+  font-size: 14px;
+}
+
 .horizon-grid {
   display: grid;
   gap: 16px;

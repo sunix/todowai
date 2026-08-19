@@ -419,6 +419,103 @@ pub async fn suggest_next_action(
     parse_suggestion(&raw)
 }
 
+/// A note already assigned a horizon, considered as a candidate for reassignment (#27) — a
+/// scoped, minimal shape for this one prompt, same rationale as BacklogNote/ExistingNote (kept
+/// separate from horizon::HorizonItem rather than reused, since this module's convention is each
+/// AI feature owns its own small input type rather than depending on another module's domain
+/// struct).
+pub struct HorizonCandidate {
+    pub path: String,
+    pub name: String,
+    pub horizon: String,
+    pub content: String,
+}
+
+/// What the AI proposes (#27) — kept separate from anything actually being written, matching the
+/// confirm-first pattern used everywhere else AI touches the vault; Horizon's own Confirm/Dismiss
+/// buttons (not this call) are what make a reassignment real. `from` is filled in server-side
+/// from the known candidate, never trusted from the model's own output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HorizonReassignmentSuggestion {
+    pub path: String,
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+}
+
+fn build_horizon_reassignment_prompt(candidates: &[HorizonCandidate]) -> String {
+    let mut prompt = String::from(
+        "You are reviewing a personal planning board with three horizons: \"week\" (near-term \
+         priorities, needs attention very soon), \"month\" (mid-term, this month or the next \
+         couple of months), and \"year\" (a longer-term intention, not urgent). Decide whether \
+         any of the items below are clearly in the wrong horizon — e.g. a stale weekly item that \
+         reads more like a long-term intention, or a year item that's actually become urgent — \
+         and propose moving just those. Most items usually belong exactly where they already are, \
+         so only propose a change when it's clearly warranted, not a marginal judgment call.\n\n",
+    );
+
+    prompt.push_str("Items (path, current horizon, then content):\n");
+    for candidate in candidates {
+        prompt.push_str(&format!(
+            "- {} [{}]:\n{}\n\n",
+            candidate.path,
+            candidate.horizon,
+            truncate_for_prompt(&candidate.content)
+        ));
+    }
+
+    prompt.push_str(
+        "Respond with ONLY a JSON array, no other text, no markdown code fences — one object per \
+         proposed reassignment, or an empty array [] if nothing should change. Each object:\n\
+         {\"path\": \"<one of the paths above>\", \"to\": \"week | month | year\", \"reason\": \"a short, \
+         concrete reason, under 100 characters\"}",
+    );
+
+    prompt
+}
+
+/// Only ever returns changes the frontend can act on directly: a hallucinated path, a `to` that
+/// isn't a real horizon, or a no-op (`to` equal to the item's current horizon) are all dropped
+/// rather than surfaced — the same defensive-parsing stance as horizon.rs normalizing an
+/// unrecognized `horizon:` value instead of trusting it outright.
+pub async fn propose_horizon_reassignments(
+    candidates: &[HorizonCandidate],
+    config: &AiConfig,
+) -> Result<Vec<HorizonReassignmentSuggestion>, AiError> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let prompt = build_horizon_reassignment_prompt(candidates);
+    let raw = complete(&prompt, config).await?;
+    let proposed = parse_horizon_reassignments(&raw)?;
+    Ok(validate_horizon_reassignments(candidates, proposed))
+}
+
+fn validate_horizon_reassignments(
+    candidates: &[HorizonCandidate],
+    proposed: Vec<(String, String, String)>,
+) -> Vec<HorizonReassignmentSuggestion> {
+    proposed
+        .into_iter()
+        .filter_map(|(path, to, reason)| {
+            let candidate = candidates.iter().find(|candidate| candidate.path == path)?;
+            if to == candidate.horizon || !["week", "month", "year"].contains(&to.as_str()) {
+                return None;
+            }
+            Some(HorizonReassignmentSuggestion {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                from: candidate.horizon.clone(),
+                to,
+                reason,
+            })
+        })
+        .collect()
+}
+
 /// Provider dispatch shared by every prompt-and-parse-JSON call this module makes (classify,
 /// suggest_next_action, and any future one) — the underlying adapters just send a prompt and
 /// hand back raw text; what the prompt asks for and how the response is parsed is the caller's
@@ -588,6 +685,23 @@ fn parse_capture_proposals(raw: &str) -> Result<Vec<CaptureProposal>, AiError> {
 fn parse_suggestion(raw: &str) -> Result<NextActionSuggestion, AiError> {
     serde_json::from_str(strip_json_fence(raw))
         .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))
+}
+
+/// The model's raw proposal shape before it's cross-checked against the real candidates in
+/// propose_horizon_reassignments — `to`/`path` aren't validated yet at this point.
+#[derive(Deserialize)]
+struct RawHorizonReassignment {
+    path: String,
+    to: String,
+    reason: String,
+}
+
+/// An empty array is a normal, expected result here (most items usually belong exactly where
+/// they already are) — unlike parse_capture_proposals, this never errors on that.
+fn parse_horizon_reassignments(raw: &str) -> Result<Vec<(String, String, String)>, AiError> {
+    let proposed: Vec<RawHorizonReassignment> = serde_json::from_str(strip_json_fence(raw))
+        .map_err(|error| AiError::Request(format!("could not parse the model's response as JSON: {error}")))?;
+    Ok(proposed.into_iter().map(|entry| (entry.path, entry.to, entry.reason)).collect())
 }
 
 #[cfg(test)]
@@ -792,5 +906,71 @@ mod tests {
     fn suggestion_prompt_has_no_special_bias_when_status_is_unset() {
         let prompt = build_suggestion_prompt(None, &[], &[]);
         assert!(!prompt.contains("small and quick"));
+    }
+
+    fn horizon_candidate(path: &str, horizon: &str) -> HorizonCandidate {
+        HorizonCandidate {
+            path: path.to_string(),
+            name: "Some Item".to_string(),
+            horizon: horizon.to_string(),
+            content: "Body.".to_string(),
+        }
+    }
+
+    #[test]
+    fn horizon_reassignment_prompt_lists_every_candidate_with_its_current_horizon() {
+        let candidates = [horizon_candidate("todowai/backlog/a.md", "week"), horizon_candidate("todowai/backlog/b.md", "year")];
+        let prompt = build_horizon_reassignment_prompt(&candidates);
+        assert!(prompt.contains("todowai/backlog/a.md [week]"));
+        assert!(prompt.contains("todowai/backlog/b.md [year]"));
+    }
+
+    #[test]
+    fn parse_horizon_reassignments_accepts_an_empty_array() {
+        assert!(parse_horizon_reassignments("[]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_horizon_reassignments_accepts_proposed_changes() {
+        let raw = r#"[{"path": "todowai/backlog/a.md", "to": "month", "reason": "No longer urgent"}]"#;
+        let result = parse_horizon_reassignments(raw).unwrap();
+        assert_eq!(result, vec![("todowai/backlog/a.md".to_string(), "month".to_string(), "No longer urgent".to_string())]);
+    }
+
+    #[test]
+    fn parse_horizon_reassignments_rejects_non_json() {
+        assert!(parse_horizon_reassignments("not json").is_err());
+    }
+
+    #[test]
+    fn validate_horizon_reassignments_keeps_a_legitimate_change() {
+        let candidates = [horizon_candidate("todowai/backlog/a.md", "week")];
+        let proposed = vec![("todowai/backlog/a.md".to_string(), "month".to_string(), "Stale".to_string())];
+        let result = validate_horizon_reassignments(&candidates, proposed);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].from, "week");
+        assert_eq!(result[0].to, "month");
+        assert_eq!(result[0].reason, "Stale");
+    }
+
+    #[test]
+    fn validate_horizon_reassignments_drops_a_hallucinated_path() {
+        let candidates = [horizon_candidate("todowai/backlog/a.md", "week")];
+        let proposed = vec![("todowai/backlog/does-not-exist.md".to_string(), "month".to_string(), "Stale".to_string())];
+        assert!(validate_horizon_reassignments(&candidates, proposed).is_empty());
+    }
+
+    #[test]
+    fn validate_horizon_reassignments_drops_a_no_op_suggestion() {
+        let candidates = [horizon_candidate("todowai/backlog/a.md", "week")];
+        let proposed = vec![("todowai/backlog/a.md".to_string(), "week".to_string(), "Same as before".to_string())];
+        assert!(validate_horizon_reassignments(&candidates, proposed).is_empty());
+    }
+
+    #[test]
+    fn validate_horizon_reassignments_drops_an_invalid_horizon_value() {
+        let candidates = [horizon_candidate("todowai/backlog/a.md", "week")];
+        let proposed = vec![("todowai/backlog/a.md".to_string(), "someday".to_string(), "Not real".to_string())];
+        assert!(validate_horizon_reassignments(&candidates, proposed).is_empty());
     }
 }
