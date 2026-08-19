@@ -831,6 +831,14 @@ main {
   opacity: 0.5;
 }
 
+.horizon-card.drag-over-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.horizon-card.drag-over-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+}
+
 .horizon-card-name {
   display: flex;
   align-items: center;
