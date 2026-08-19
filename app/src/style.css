@@ -798,3 +798,50 @@ main {
   color: var(--muted);
   text-decoration: line-through;
 }
+
+.horizon-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+  align-items: start;
+}
+
+.horizon-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px dashed transparent;
+  transition: border-color 0.1s ease, background-color 0.1s ease;
+}
+
+.horizon-column.drag-over {
+  border-color: var(--accent);
+  background: rgba(124, 108, 240, 0.08);
+}
+
+.horizon-card {
+  padding: 10px 14px;
+  cursor: grab;
+}
+
+.horizon-card.dragging {
+  opacity: 0.5;
+}
+
+.horizon-card.drag-over-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.horizon-card.drag-over-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+}
+
+.horizon-card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}

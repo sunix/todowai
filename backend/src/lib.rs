@@ -2,6 +2,8 @@ pub mod ai;
 pub mod api;
 pub mod calendar;
 pub mod error;
+pub mod horizon;
+pub mod note;
 pub mod projects;
 pub mod repository;
 pub mod sync;

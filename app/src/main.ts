@@ -7,6 +7,7 @@ import {
   fetchAiModels,
   fetchConfiguredRemotes,
   fetchConflict,
+  fetchHorizonItems,
   fetchProjects,
   fetchSnapshot,
   fetchSyncStatus,
@@ -24,6 +25,8 @@ import {
   type ConfiguredRemote,
   type ConflictInfo,
   type ConflictSide,
+  type HorizonItem,
+  type HorizonValue,
   type Project,
   type SyncStatus,
   type UpcomingEvent,
@@ -33,6 +36,7 @@ import { SCREENS, currentScreen, navigateTo, onRouteChange } from './router';
 import {
   escapeHtml,
   renderCaptureScreen,
+  renderHorizonScreen,
   renderNextActionScreen,
   renderNotebookScreen,
   renderProjectsScreen,
@@ -163,6 +167,16 @@ type AppState = {
   // A read-only projection over `type: project` notes (#25) — editing status/progress happens
   // by editing the note itself in Notebook, not through this screen.
   projects: Project[];
+  // A read-only projection over `type: todo`/`type: project` notes' `horizon:` field (#26) —
+  // moving an item writes that field directly via the generic file endpoints, not through a
+  // dedicated mutation route.
+  horizonItems: HorizonItem[];
+  // Priority order *within* a horizon column (#26 follow-up) — the backend has no notion of
+  // this (HorizonItem carries no ordering field), so it's a small JSON manifest of
+  // horizon -> ordered paths, loaded/saved the same way calendarFeeds is. A path missing from
+  // its column's list (a note that existed before ordering was ever touched) sorts after every
+  // explicitly-ordered one, in whatever order the backend returned it.
+  horizonOrder: HorizonOrder;
 };
 
 const state: AppState = {
@@ -215,6 +229,8 @@ const state: AppState = {
   calendarFeeds: [],
   upcomingEvents: [],
   projects: [],
+  horizonItems: [],
+  horizonOrder: {},
 };
 
 navlist.innerHTML = SCREENS.map(
@@ -309,7 +325,15 @@ function render(): void {
                   statusMessage: state.statusMessage,
                   errorMessage: state.errorMessage,
                 })
-              : renderScreen(screen);
+              : screen === 'horizon'
+                ? renderHorizonScreen({
+                    items: orderedHorizonItems(state.horizonItems, state.horizonOrder),
+                    isBusy: state.isBusy,
+                    busyLabel: state.busyLabel,
+                    statusMessage: state.statusMessage,
+                    errorMessage: state.errorMessage,
+                  })
+                : renderScreen(screen);
   navlist.querySelectorAll<HTMLButtonElement>('button[data-screen]').forEach((button) => {
     button.classList.toggle('active', button.dataset.screen === screen);
   });
@@ -324,6 +348,8 @@ function render(): void {
     bindNextActionScreen();
   } else if (screen === 'projects') {
     bindProjectsScreen();
+  } else if (screen === 'horizon') {
+    bindHorizonScreen();
   }
 }
 
@@ -370,6 +396,8 @@ void loadSnapshot('Connecting to backend…').then(() => {
   void refreshCalendarFeeds();
   void refreshUpcomingEvents();
   void refreshProjects();
+  void refreshHorizonItems();
+  void refreshHorizonOrder();
 });
 
 // Configured remotes reflect static .git/config content, not something this app's own actions
@@ -1060,6 +1088,96 @@ async function refreshProjects(): Promise<void> {
   render();
 }
 
+async function refreshHorizonItems(): Promise<void> {
+  try {
+    state.horizonItems = await fetchHorizonItems();
+  } catch {
+    state.horizonItems = [];
+  }
+  render();
+}
+
+// Keyed by horizon value ("" for Unscheduled, matching HorizonItem.horizon) — each value is that
+// column's item paths in priority order. Nothing on the backend has a notion of order within a
+// column, so this is purely a frontend concern, persisted the same way calendarFeeds is.
+type HorizonOrder = Record<string, string[]>;
+
+const HORIZON_ORDER_FILE_NAME = 'horizon-order.json';
+
+function horizonOrderFilePath(subfolder: string): string {
+  return `${subfolder}/${HORIZON_ORDER_FILE_NAME}`;
+}
+
+function parseHorizonOrder(content: string): HorizonOrder {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const order: HorizonOrder = {};
+    for (const [horizon, paths] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(paths)) {
+        order[horizon] = paths.filter((path): path is string => typeof path === 'string');
+      }
+    }
+    return order;
+  } catch {
+    return {};
+  }
+}
+
+function serializeHorizonOrder(order: HorizonOrder): string {
+  return JSON.stringify(order, null, 2);
+}
+
+async function refreshHorizonOrder(): Promise<void> {
+  try {
+    const content = await readFile(horizonOrderFilePath(state.subfolder));
+    state.horizonOrder = parseHorizonOrder(content);
+  } catch {
+    state.horizonOrder = {};
+  }
+  render();
+}
+
+// Items within each horizon column, sorted by that column's explicit order (unlisted items —
+// never dragged since ordering was introduced — keep their original relative order and sort
+// after every explicitly-ordered one). Cross-column order doesn't matter: renderHorizonScreen
+// filters this list per column, and Array.filter preserves relative order among matches
+// regardless of other elements' positions, so sorting each column's own bucket is sufficient.
+function orderedHorizonItems(items: HorizonItem[], order: HorizonOrder): HorizonItem[] {
+  const byHorizon = new Map<string, HorizonItem[]>();
+  for (const item of items) {
+    const bucket = byHorizon.get(item.horizon);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      byHorizon.set(item.horizon, [item]);
+    }
+  }
+
+  const result: HorizonItem[] = [];
+  for (const [horizon, bucket] of byHorizon) {
+    const explicitOrder = order[horizon] ?? [];
+    const sorted = [...bucket].sort((a, b) => {
+      const indexA = explicitOrder.indexOf(a.path);
+      const indexB = explicitOrder.indexOf(b.path);
+      if (indexA === -1 && indexB === -1) {
+        return 0;
+      }
+      if (indexA === -1) {
+        return 1;
+      }
+      if (indexB === -1) {
+        return -1;
+      }
+      return indexA - indexB;
+    });
+    result.push(...sorted);
+  }
+  return result;
+}
+
 // Mirrors backend/src/projects.rs's own checklist parsing exactly (- [ ] / - [x] / - [X]) —
 // toggling a task is a plain read-modify-write on the note's raw content via the existing
 // generic file endpoints, not a dedicated mutation endpoint.
@@ -1127,6 +1245,142 @@ function bindProjectsScreen(): void {
         // recompute it here, so the two never drift out of sync.
         state.projects = await fetchProjects();
       });
+    });
+  });
+}
+
+// Cursor above a card's own vertical midpoint means "insert before it," below means "insert
+// after" — the only way a 2-item column can have its order swapped by dropping one card directly
+// onto the other (there's no third card to drop "before" for the "move it after" case).
+function dropIsAfterCard(event: DragEvent, card: HTMLElement): boolean {
+  const rect = card.getBoundingClientRect();
+  return event.clientY > rect.top + rect.height / 2;
+}
+
+// Moving an item between columns is a plain read-modify-write on its `horizon:` frontmatter
+// field via the existing generic file endpoints (#26) — same reuse pattern as project task
+// toggling and Capture's attach flow. Reordering within a column only touches horizon-order.json
+// (see refreshHorizonOrder) since the note's own frontmatter has no notion of priority.
+async function moveHorizonItem(
+  path: string,
+  targetHorizon: HorizonValue | '',
+  beforePath: string | null,
+  insertAfter: boolean
+): Promise<void> {
+  const item = state.horizonItems.find((entry) => entry.path === path);
+  if (!item || (item.horizon === targetHorizon && beforePath === path)) {
+    return;
+  }
+
+  await runRepositoryAction('Moving item…', async () => {
+    if (item.horizon !== targetHorizon) {
+      const content = await readFile(path);
+      const parsed = parseFrontmatter(content);
+      const updated = serializeFrontmatter({
+        frontmatter: setFrontmatterValue(parsed.frontmatter, 'horizon', targetHorizon),
+        body: parsed.body,
+      });
+      const snapshot = await writeFile(path, updated);
+      state.files = snapshot.files;
+      state.pendingChanges = snapshot.pendingChanges;
+    }
+
+    // Drop `path` from every column's explicit order, then splice it back into the target
+    // column's *currently displayed* order at the requested position — that materializes
+    // whatever implicit order unlisted items were already in, so they don't reshuffle.
+    const nextOrder: HorizonOrder = {};
+    for (const [horizon, paths] of Object.entries(state.horizonOrder)) {
+      nextOrder[horizon] = paths.filter((entry) => entry !== path);
+    }
+    const targetOrder = orderedHorizonItems(state.horizonItems, state.horizonOrder)
+      .filter((entry) => entry.horizon === targetHorizon && entry.path !== path)
+      .map((entry) => entry.path);
+    let insertIndex = beforePath ? targetOrder.indexOf(beforePath) : targetOrder.length;
+    if (insertIndex === -1) {
+      insertIndex = targetOrder.length;
+    } else if (insertAfter) {
+      insertIndex += 1;
+    }
+    targetOrder.splice(insertIndex, 0, path);
+    nextOrder[targetHorizon] = targetOrder;
+
+    const snapshot = await writeFile(horizonOrderFilePath(state.subfolder), serializeHorizonOrder(nextOrder));
+    state.files = snapshot.files;
+    state.pendingChanges = snapshot.pendingChanges;
+    state.horizonOrder = nextOrder;
+    // The column an item belongs in is derived server-side from the field just written —
+    // refetch rather than recompute it here, so the two never drift out of sync.
+    state.horizonItems = await fetchHorizonItems();
+  });
+}
+
+function bindHorizonScreen(): void {
+  main.querySelectorAll<HTMLElement>('[data-horizon-drag]').forEach((card) => {
+    card.addEventListener('dragstart', (event) => {
+      const path = card.dataset.horizonDrag;
+      if (!path || !event.dataTransfer) {
+        return;
+      }
+      event.dataTransfer.setData('text/plain', path);
+      event.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+    });
+
+    // Handled here (not just at the column level) so dropping one card directly onto another
+    // reorders them within the column instead of just appending to the end.
+    card.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      card.classList.toggle('drag-over-after', dropIsAfterCard(event, card));
+      card.classList.toggle('drag-over-before', !dropIsAfterCard(event, card));
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over-before', 'drag-over-after');
+    });
+    card.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      card.classList.remove('drag-over-before', 'drag-over-after');
+      const path = event.dataTransfer?.getData('text/plain');
+      const targetPath = card.dataset.horizonDrag;
+      const column = card.closest<HTMLElement>('[data-horizon-drop]');
+      if (!path || !targetPath || !column) {
+        return;
+      }
+      const horizon = (column.dataset.horizonDrop ?? '') as HorizonValue | '';
+      await moveHorizonItem(path, horizon, targetPath, dropIsAfterCard(event, card));
+    });
+  });
+
+  main.querySelectorAll<HTMLElement>('[data-horizon-drop]').forEach((column) => {
+    column.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      column.classList.add('drag-over');
+    });
+    column.addEventListener('dragleave', () => {
+      column.classList.remove('drag-over');
+    });
+    // Only fires when the drop lands on the column's own background, not a card — each card's
+    // own drop handler above calls stopPropagation, so this is purely the "append to the end"
+    // case (empty space below the last card, or an empty column).
+    column.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      column.classList.remove('drag-over');
+      const path = event.dataTransfer?.getData('text/plain');
+      if (!path) {
+        return;
+      }
+      const horizon = (column.dataset.horizonDrop ?? '') as HorizonValue | '';
+      await moveHorizonItem(path, horizon, null, false);
     });
   });
 }
