@@ -217,34 +217,23 @@ export function renderHorizonScreen(state?: HorizonScreenState): string {
         ? items
             .map(
               (item) => `
-                <article class="card horizon-card">
+                <article
+                  class="card horizon-card"
+                  draggable="${viewState.isBusy ? 'false' : 'true'}"
+                  data-horizon-drag="${escapeHtmlAttribute(item.path)}"
+                >
                   <div class="horizon-card-name">
                     ${escapeHtml(item.name)}
                     <span class="badge badge-default">${HORIZON_KIND_LABELS[item.kind]}</span>
                   </div>
-                  <label class="field-label" for="horizon-move-${escapeHtmlAttribute(item.path)}">Move to</label>
-                  <select
-                    class="text-input"
-                    id="horizon-move-${escapeHtmlAttribute(item.path)}"
-                    data-horizon-move="${escapeHtmlAttribute(item.path)}"
-                    ${viewState.isBusy ? 'disabled' : ''}
-                  >
-                    ${item.horizon === '' ? '<option value="" selected disabled>Choose a horizon…</option>' : ''}
-                    ${HORIZON_COLUMNS.filter((option) => option.value !== '')
-                      .map(
-                        (option) =>
-                          `<option value="${option.value}" ${option.value === item.horizon ? 'selected' : ''}>${option.label}</option>`
-                      )
-                      .join('')}
-                  </select>
                 </article>
               `
             )
             .join('')
-        : '<p class="empty-state">Nothing here.</p>';
+        : '<p class="empty-state">Drag an item here.</p>';
 
     return `
-      <div class="horizon-column">
+      <div class="horizon-column" data-horizon-drop="${column.value}">
         <h2 class="section-title">${column.label}</h2>
         ${cardsHtml}
       </div>
@@ -253,7 +242,7 @@ export function renderHorizonScreen(state?: HorizonScreenState): string {
 
   return `
     <h1 class="title">${TITLES.horizon}</h1>
-    <p class="placeholder">Todos and projects grouped by how soon they need attention.</p>
+    <p class="placeholder">Todos and projects grouped by how soon they need attention — drag a card to move it.</p>
     ${
       viewState.isBusy
         ? `<p class="busy-message"><span class="spinner" aria-hidden="true"></span>${escapeHtml(viewState.busyLabel)}</p>`

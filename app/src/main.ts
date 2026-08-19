@@ -1162,15 +1162,44 @@ function bindProjectsScreen(): void {
 
 // Moving an item is a plain read-modify-write on its `horizon:` frontmatter field via the
 // existing generic file endpoints (#26) — same reuse pattern as project task toggling and
-// Capture's attach flow, not a dedicated mutation endpoint.
+// Capture's attach flow, not a dedicated mutation endpoint. Drag-and-drop (rather than a per-card
+// "Move to" select) keeps each card down to just its name and badge — a dropdown for every card
+// took up too much space for what's otherwise a compact grid.
 function bindHorizonScreen(): void {
-  main.querySelectorAll<HTMLSelectElement>('[data-horizon-move]').forEach((select) => {
-    select.addEventListener('change', async (event) => {
-      const path = select.dataset.horizonMove;
+  main.querySelectorAll<HTMLElement>('[data-horizon-drag]').forEach((card) => {
+    card.addEventListener('dragstart', (event) => {
+      const path = card.dataset.horizonDrag;
+      if (!path || !event.dataTransfer) {
+        return;
+      }
+      event.dataTransfer.setData('text/plain', path);
+      event.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+    });
+  });
+
+  main.querySelectorAll<HTMLElement>('[data-horizon-drop]').forEach((column) => {
+    column.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      column.classList.add('drag-over');
+    });
+    column.addEventListener('dragleave', () => {
+      column.classList.remove('drag-over');
+    });
+    column.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      column.classList.remove('drag-over');
+      const path = event.dataTransfer?.getData('text/plain');
       if (!path) {
         return;
       }
-      const horizon = (event.target as HTMLSelectElement).value as HorizonValue;
+      const horizon = (column.dataset.horizonDrop ?? '') as HorizonValue | '';
 
       await runRepositoryAction('Moving item…', async () => {
         const content = await readFile(path);

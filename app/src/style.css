@@ -811,12 +811,24 @@ main {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px dashed transparent;
+  transition: border-color 0.1s ease, background-color 0.1s ease;
+}
+
+.horizon-column.drag-over {
+  border-color: var(--accent);
+  background: rgba(124, 108, 240, 0.08);
 }
 
 .horizon-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 10px 14px;
+  cursor: grab;
+}
+
+.horizon-card.dragging {
+  opacity: 0.5;
 }
 
 .horizon-card-name {
