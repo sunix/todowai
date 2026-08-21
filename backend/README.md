@@ -34,6 +34,7 @@ Set via environment variables:
 | `TODOWAI_AI_API_KEY` | _(empty)_ | Credential for the provider above. Not needed for `ollama` (a local, unauthenticated server). |
 | `TODOWAI_AI_MODEL` | _(none)_ | Model name to request. Optional for `anthropic` (defaults to `claude-opus-5`); required for every other provider — there's no safe default model ID to guess for those. |
 | `TODOWAI_AI_BASE_URL` | _(provider default)_ | Overrides the provider's default endpoint — mainly for `ollama` (a different host/port) or a self-hosted OpenAI-compatible server. |
+| `TODOWAI_AI_MAX_COMPLETION_TOKENS` | `8192` | Ceiling on the model's response length for every AI feature. Raise it if a capture-classify response gets truncated (an "EOF while parsing a string" error); lower it to cap cost/latency. |
 
 `.git/` and `.obsidian/` are always off-limits — rejected on any read/write, and never listed or staged — regardless of subfolder configuration.
 
@@ -46,15 +47,16 @@ Set via environment variables:
 | `GET` | `/api/repository/file?path=...` | Read a file's contents |
 | `PUT` | `/api/repository/file` | Write a file (`{ path, content }`), returns the updated snapshot |
 | `POST` | `/api/repository/commit` | Stage and commit every pending change (`{ message, authorName, authorEmail }`); schedules a debounced push |
-| `PUT` | `/api/sync/remote` | Set the remote config (`{ url, username, token }`), or `null` to clear it — overrides the `TODOWAI_REMOTE_*` env vars without a restart, in-memory only |
+| `GET` | `/api/sync/remote` | The configured remote, if any — `{ url, username, configured }`. Never includes the token. |
+| `PUT` | `/api/sync/remote` | Set the remote config (`{ url, username, token }`), or `null` to clear it — overrides the `TODOWAI_REMOTE_*` env vars without a restart, in-memory only. An empty `token` on an otherwise non-empty update preserves whatever token was already configured rather than wiping it (so Settings can pre-fill `url`/`username` from the GET above without risking the token). |
 | `GET` | `/api/sync/remotes` | Remotes already configured in `.git/config` (`[{ name, url }]`, e.g. `origin`) — read-only, for the UI to suggest instead of requiring the URL to be retyped |
 | `GET` | `/api/sync/status` | Current sync status (`synced` / `offline` / `conflict` / `error`) and a message |
 | `POST` | `/api/sync/pull` | Pull immediately (in addition to on startup and the background interval) |
 | `POST` | `/api/sync/push` | Push (`{ immediate }`, default `true`) — `immediate: false` uses the same debounce as a commit |
 | `GET` | `/api/sync/conflict` | The real conflict (if any) still pending resolution — `{ files: [...] }`, or `null` when clean |
 | `POST` | `/api/sync/conflict/resolve` | Resolve a pending conflict (`{ resolutions: [{ path, keep: "mine" \| "theirs" }] }`, one entry per conflicted file), then pushes the result |
-| `GET` | `/api/ai/config` | The configured AI provider, if any — `{ provider, model, baseUrl, configured }`. Never includes the API key. |
-| `PUT` | `/api/ai/config` | Set the AI provider config (`{ provider, apiKey, model, baseUrl }`), or `null` to clear it — overrides the `TODOWAI_AI_*` env vars without a restart, in-memory only |
+| `GET` | `/api/ai/config` | The configured AI provider, if any — `{ provider, model, baseUrl, maxCompletionTokens, configured }`. Never includes the API key. |
+| `PUT` | `/api/ai/config` | Set the AI provider config (`{ provider, apiKey, model, baseUrl, maxCompletionTokens }`), or `null` to clear it — overrides the `TODOWAI_AI_*` env vars without a restart, in-memory only. An empty `apiKey` on an otherwise non-empty update preserves whatever key was already configured rather than wiping it, same as `/api/sync/remote`'s token handling. |
 | `POST` | `/api/ai/classify` | Propose a type/title/content classification for a captured note (`{ text }`) via the configured provider — `400` if none is configured |
 
 Everything else falls back to serving the web UI's static assets (hash-based client routing means the server never needs to handle deep paths itself).

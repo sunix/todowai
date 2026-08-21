@@ -47,6 +47,10 @@ pub struct AiConfig {
     /// Overrides the provider's default endpoint — mainly for Ollama (a different host/port) or
     /// a self-hosted OpenAI-compatible server.
     pub base_url: Option<String>,
+    /// Overrides DEFAULT_MAX_COMPLETION_TOKENS (#106/#108) — `None` falls back to the default,
+    /// not to some other hardcoded value, so most users never need to touch this.
+    #[serde(default)]
+    pub max_completion_tokens: Option<u32>,
 }
 
 /// The safe-to-echo half of AiConfig — never includes the API key, matching how RemoteConfig's
@@ -57,6 +61,7 @@ pub struct AiConfigView {
     pub provider: Option<AiProvider>,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    pub max_completion_tokens: Option<u32>,
     pub configured: bool,
 }
 
@@ -67,12 +72,14 @@ impl AiConfigView {
                 provider: Some(config.provider),
                 model: config.model.clone(),
                 base_url: config.base_url.clone(),
+                max_completion_tokens: config.max_completion_tokens,
                 configured: true,
             },
             None => AiConfigView {
                 provider: None,
                 model: None,
                 base_url: None,
+                max_completion_tokens: None,
                 configured: false,
             },
         }
@@ -516,12 +523,17 @@ fn validate_horizon_reassignments(
         .collect()
 }
 
-/// Shared across every feature that calls `complete()`. Capture classification (#17/#99/#101)
-/// can need to reproduce an entire captured note's text inside a JSON `content` field — a real
-/// meeting-notes-length capture was seen truncating mid-string at the old 2048 cap, producing an
-/// unparseable "EOF while parsing a string" response (#106). Generous here costs nothing for the
-/// other, much shorter completions (a one-sentence suggestion, a short reassignment reason).
-const MAX_COMPLETION_TOKENS: u32 = 8192;
+/// Shared across every feature that calls `complete()`, used unless AiConfig.max_completion_tokens
+/// overrides it (#108). Capture classification (#17/#99/#101) can need to reproduce an entire
+/// captured note's text inside a JSON `content` field — a real meeting-notes-length capture was
+/// seen truncating mid-string at the old 2048 cap, producing an unparseable "EOF while parsing a
+/// string" response (#106). Generous here costs nothing for the other, much shorter completions
+/// (a one-sentence suggestion, a short reassignment reason).
+const DEFAULT_MAX_COMPLETION_TOKENS: u32 = 8192;
+
+fn max_completion_tokens(config: &AiConfig) -> u32 {
+    config.max_completion_tokens.unwrap_or(DEFAULT_MAX_COMPLETION_TOKENS)
+}
 
 /// Provider dispatch shared by every prompt-and-parse-JSON call this module makes (classify,
 /// suggest_next_action, and any future one) — the underlying adapters just send a prompt and
@@ -551,7 +563,7 @@ async fn complete_via_anthropic(prompt: &str, config: &AiConfig) -> Result<Strin
     // for low effort, not a downgrade of the model itself.
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": MAX_COMPLETION_TOKENS,
+        "max_tokens": max_completion_tokens(config),
         "thinking": {"type": "disabled"},
         "output_config": {"effort": "low"},
         "messages": [{"role": "user", "content": prompt}],
@@ -618,7 +630,7 @@ async fn complete_via_openai_compatible(prompt: &str, config: &AiConfig, default
 
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": MAX_COMPLETION_TOKENS,
+        "max_tokens": max_completion_tokens(config),
         "messages": [{"role": "user", "content": prompt}],
     });
 

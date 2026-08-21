@@ -10,6 +10,7 @@ import {
   fetchHorizonItems,
   fetchMeetings,
   fetchProjects,
+  fetchRemoteConfig,
   fetchSnapshot,
   fetchSyncStatus,
   fetchUpcomingEvents,
@@ -145,6 +146,7 @@ type AppState = {
   aiApiKey: string;
   aiModel: string;
   aiBaseUrl: string;
+  aiMaxCompletionTokens: string;
   aiModels: string[];
   // The persistent current-status field (#19) — null until the user sets one for the first
   // time. isEditingStatus/statusEditKind/statusEditLabel/statusEditTaskPath are the in-progress
@@ -226,11 +228,12 @@ const state: AppState = {
   captures: loadCaptures(),
   draft: null,
   attachDrafts: [],
-  aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
+  aiConfig: { provider: null, model: null, baseUrl: null, maxCompletionTokens: null, configured: false },
   aiProvider: 'anthropic',
   aiApiKey: '',
   aiModel: '',
   aiBaseUrl: '',
+  aiMaxCompletionTokens: '',
   aiModels: [],
   currentStatus: null,
   isEditingStatus: false,
@@ -291,6 +294,7 @@ function render(): void {
           aiApiKey: state.aiApiKey,
           aiModel: state.aiModel,
           aiBaseUrl: state.aiBaseUrl,
+          aiMaxCompletionTokens: state.aiMaxCompletionTokens,
           aiModels: state.aiModels,
           calendarFeeds: state.calendarFeeds,
         })
@@ -459,7 +463,10 @@ async function refreshAiModels(): Promise<void> {
 }
 
 // AI provider config reflects backend/env state, not something this app's own actions change —
-// a single fetch on startup is enough, same rationale as configuredRemotes above.
+// a single fetch on startup is enough, same rationale as configuredRemotes above. Never
+// pre-fills aiApiKey — AiConfigView doesn't include it, so the field always starts blank; saving
+// it blank now preserves whatever key is already stored server-side (see setAiConfig) rather
+// than wiping it.
 void fetchAiConfig()
   .then((config) => {
     state.aiConfig = config;
@@ -472,6 +479,9 @@ void fetchAiConfig()
     if (config.baseUrl) {
       state.aiBaseUrl = config.baseUrl;
     }
+    if (config.maxCompletionTokens) {
+      state.aiMaxCompletionTokens = String(config.maxCompletionTokens);
+    }
     render();
     if (config.configured) {
       void refreshAiModels();
@@ -480,6 +490,25 @@ void fetchAiConfig()
   .catch(() => {
     // Not configured yet, or the backend couldn't be reached — Capture's "Let AI propose"
     // button just stays disabled, which is a fine, quiet fallback.
+  });
+
+// Same rationale/pattern as the AI config fetch above. Never pre-fills remoteToken —
+// RemoteConfigView doesn't include it, so the field always starts blank; saving it blank now
+// preserves whatever token is already stored server-side (see setRemote/set_remote) rather than
+// wiping it.
+void fetchRemoteConfig()
+  .then((config) => {
+    if (config.url) {
+      state.remoteUrl = config.url;
+    }
+    if (config.username) {
+      state.remoteUsername = config.username;
+    }
+    render();
+  })
+  .catch(() => {
+    // Not configured yet, or the backend couldn't be reached — the Remote sync fields just stay
+    // blank, which is a fine, quiet fallback.
   });
 
 // The sync indicator is global (every screen, per the mockup's sidebar-footer placement) and
@@ -601,6 +630,10 @@ function bindSettingsScreen(): void {
     state.aiBaseUrl = (event.target as HTMLInputElement).value;
   });
 
+  main.querySelector<HTMLInputElement>('#ai-max-completion-tokens')?.addEventListener('input', (event) => {
+    state.aiMaxCompletionTokens = (event.target as HTMLInputElement).value;
+  });
+
   main.querySelector<HTMLButtonElement>('#save-ai-config-button')?.addEventListener('click', async () => {
     await runRepositoryAction('Saving AI settings…', async () => {
       state.aiConfig = await setAiConfig({
@@ -608,6 +641,7 @@ function bindSettingsScreen(): void {
         apiKey: state.aiApiKey,
         model: state.aiModel,
         baseUrl: state.aiBaseUrl,
+        maxCompletionTokens: state.aiMaxCompletionTokens,
       });
       state.statusMessage = 'AI settings saved.';
     });
@@ -618,6 +652,7 @@ function bindSettingsScreen(): void {
     await runRepositoryAction('Clearing AI settings…', async () => {
       state.aiConfig = await setAiConfig(null);
       state.aiApiKey = '';
+      state.aiMaxCompletionTokens = '';
       state.aiModels = [];
       state.statusMessage = 'AI settings cleared.';
     });

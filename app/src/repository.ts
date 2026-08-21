@@ -50,6 +50,14 @@ export type RemoteConfig = {
   token: string;
 };
 
+// The safe-to-echo half of RemoteConfig — never includes the token, matching AiConfigView never
+// including the API key. Lets Settings pre-fill the url/username fields on load.
+export type RemoteConfigView = {
+  url: string;
+  username: string;
+  configured: boolean;
+};
+
 export type ConfiguredRemote = {
   name: string;
   url: string;
@@ -152,6 +160,10 @@ export async function setRemote(remote: RemoteConfig | null): Promise<void> {
   }
 }
 
+export async function fetchRemoteConfig(): Promise<RemoteConfigView> {
+  return requestJson<RemoteConfigView>('/sync/remote');
+}
+
 export async function syncPull(): Promise<SyncResult> {
   return requestJson<SyncResult>('/sync/pull', { method: 'POST' });
 }
@@ -191,6 +203,7 @@ export type AiConfigView = {
   provider: AiProvider | null;
   model: string | null;
   baseUrl: string | null;
+  maxCompletionTokens: number | null;
   configured: boolean;
 };
 
@@ -199,6 +212,9 @@ export type AiConfigInput = {
   apiKey: string;
   model: string;
   baseUrl: string;
+  // Empty string means "use the backend's default" — sent as `null`, not 0 or omitted, so
+  // clearing this field back to blank actually resets it rather than leaving a stale value.
+  maxCompletionTokens: string;
 };
 
 // Either a brand-new note (the original #17 shape — type/title/content) or attaching to an
@@ -222,7 +238,10 @@ export async function fetchAiConfig(): Promise<AiConfigView> {
   return requestJson<AiConfigView>('/ai/config');
 }
 
-// `null` clears the configured provider entirely — same convention as setRemote.
+// `null` clears the configured provider entirely — same convention as setRemote. An empty
+// `apiKey` preserves whatever key is already stored server-side rather than wiping it — see
+// backend/src/api.rs's set_ai_config — so a Settings form pre-filled from fetchAiConfig and saved
+// without retyping the key (e.g. just to change the model) doesn't silently break the provider.
 export async function setAiConfig(config: AiConfigInput | null): Promise<AiConfigView> {
   return requestJson<AiConfigView>('/ai/config', {
     method: 'PUT',
@@ -234,6 +253,7 @@ export async function setAiConfig(config: AiConfigInput | null): Promise<AiConfi
             apiKey: config.apiKey,
             model: config.model.trim() ? config.model.trim() : null,
             baseUrl: config.baseUrl.trim() ? config.baseUrl.trim() : null,
+            maxCompletionTokens: config.maxCompletionTokens.trim() ? Number(config.maxCompletionTokens.trim()) : null,
           }
         : null
     ),

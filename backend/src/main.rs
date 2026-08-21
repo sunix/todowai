@@ -75,6 +75,7 @@ async fn main() {
                 api_key: std::env::var("TODOWAI_AI_API_KEY").unwrap_or_default(),
                 model: std::env::var("TODOWAI_AI_MODEL").ok().filter(|value| !value.trim().is_empty()),
                 base_url: std::env::var("TODOWAI_AI_BASE_URL").ok().filter(|value| !value.trim().is_empty()),
+                max_completion_tokens: std::env::var("TODOWAI_AI_MAX_COMPLETION_TOKENS").ok().and_then(|value| value.parse().ok()),
             })
     });
     let shared_ai_config: api::SharedAiConfig = Arc::new(Mutex::new(ai_config));
