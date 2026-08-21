@@ -571,6 +571,34 @@ main {
   resize: none;
 }
 
+.meetings {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.meetings-list,
+.meetings-preview {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  height: 600px;
+  overflow: auto;
+}
+
+.meeting-date {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meeting-body {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .spinner {
   display: inline-block;
   width: 12px;

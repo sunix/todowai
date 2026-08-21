@@ -3,6 +3,7 @@ pub mod api;
 pub mod calendar;
 pub mod error;
 pub mod horizon;
+pub mod meetings;
 pub mod note;
 pub mod projects;
 pub mod repository;

@@ -341,3 +341,17 @@ export type HorizonReassignmentSuggestion = {
 export async function suggestHorizonReassignments(): Promise<HorizonReassignmentSuggestion[]> {
   return requestJson<HorizonReassignmentSuggestion[]>('/ai/suggest-horizon-reassignments', { method: 'POST' });
 }
+
+// A read-only projection over `type: meeting` notes (#28) — the markdown stays the source of
+// truth; selecting one on the Meetings screen reads its full frontmatter and body via the
+// existing generic file endpoint (readFile), not through this type. `date` is the raw frontmatter
+// value, free text like Project.status, empty when the note has none.
+export type Meeting = {
+  path: string;
+  name: string;
+  date: string;
+};
+
+export async function fetchMeetings(): Promise<Meeting[]> {
+  return requestJson<Meeting[]>('/meetings');
+}
