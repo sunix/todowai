@@ -108,4 +108,21 @@ mod tests {
         assert_eq!(items[0].horizon, "week");
         assert_eq!(items[1].horizon, "month");
     }
+
+    // A project note promoted to a folder (#111/ADR-003) and a task note living alongside it in
+    // that same folder are both still discovered independently, each with its own horizon.
+    #[test]
+    fn scan_horizon_items_finds_a_project_folders_notes_independently() {
+        let files = vec![
+            ("todowai/backlog/parisjug/index.md".to_string(), "---\ntype: project\nhorizon: month\n---\n\nEvent.".to_string()),
+            (
+                "todowai/backlog/parisjug/find-a-date.md".to_string(),
+                "---\ntype: todo\nhorizon: week\n---\n\nFind a date.".to_string(),
+            ),
+        ];
+        let items = scan_horizon_items(&files);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|item| item.name == "Parisjug" && item.horizon == "month"));
+        assert!(items.iter().any(|item| item.name == "Find A Date" && item.horizon == "week"));
+    }
 }
