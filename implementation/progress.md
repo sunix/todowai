@@ -39,6 +39,7 @@
 | [#27](https://github.com/sunix/todowai/issues/27) | Horizon: AI-suggested reassignment with confirm/dismiss | Claude | [#104](https://github.com/sunix/todowai/pull/104) | Merged |
 | [#28](https://github.com/sunix/todowai/issues/28) | Meetings view: list + frontmatter note preview | Claude | [#105](https://github.com/sunix/todowai/pull/105) | Merged |
 | [#106](https://github.com/sunix/todowai/issues/106) | Capture: AI propose truncation fix — max_tokens too low (ad hoc, not in the Phase 3 plan) | Claude | [#107](https://github.com/sunix/todowai/pull/107) | Merged |
+| [#108](https://github.com/sunix/todowai/issues/108) | Settings: pre-fill existing config (except secrets), configurable max completion tokens (ad hoc, not in the Phase 3 plan) | Claude | [#109](https://github.com/sunix/todowai/pull/109) | Merged |
 
 <!--
 Status values: In Progress | In Review | Merged | Superseded
