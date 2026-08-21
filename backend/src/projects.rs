@@ -196,4 +196,32 @@ mod tests {
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].status, "done");
     }
+
+    // A project promoted to a folder-note (#111/ADR-003) is discovered exactly like a flat
+    // project note — the only difference is display_name deriving the title from the folder.
+    #[test]
+    fn a_project_promoted_to_a_folder_with_index_md_is_discovered_and_named_from_its_folder() {
+        let content = "---\ntype: project\nstatus: in-progress\n---\n\nParisJUG chez Sciam event.";
+        let project = parse_project("todowai/backlog/parisjug/index.md", content).unwrap();
+        assert_eq!(project.name, "Parisjug");
+        assert_eq!(project.status, "in-progress");
+    }
+
+    // Sibling notes placed inside a project's folder are still independently discoverable by
+    // whichever scanner cares about their own type (this one doesn't scan for `type: project`,
+    // so it correctly ignores them) — the crux of #111's "grouped, not a separate manifest".
+    #[test]
+    fn scan_projects_ignores_sibling_notes_in_a_projects_folder_that_are_not_projects_themselves() {
+        let files = vec![
+            ("todowai/backlog/parisjug/index.md".to_string(), "---\ntype: project\n---\n\nEvent.".to_string()),
+            ("todowai/backlog/parisjug/find-a-date.md".to_string(), "---\ntype: todo\n---\n\nFind a date.".to_string()),
+            (
+                "todowai/backlog/parisjug/kickoff.md".to_string(),
+                "---\ntype: meeting\n---\n\nKickoff notes.".to_string(),
+            ),
+        ];
+        let projects = scan_projects(&files);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "Parisjug");
+    }
 }

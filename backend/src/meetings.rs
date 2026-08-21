@@ -72,4 +72,21 @@ mod tests {
         assert_eq!(meetings[0].date, "2026-08-01");
         assert_eq!(meetings[1].date, "2026-08-15");
     }
+
+    // A meeting note living inside a project's folder (#111/ADR-003) is discovered the same as
+    // any other meeting note — the project note itself (type: project) is correctly excluded.
+    #[test]
+    fn scan_meetings_finds_a_meeting_note_inside_a_projects_folder() {
+        let files = vec![
+            ("todowai/backlog/parisjug/index.md".to_string(), "---\ntype: project\n---\n\nEvent.".to_string()),
+            (
+                "todowai/backlog/parisjug/kickoff.md".to_string(),
+                "---\ntype: meeting\ndate: 2026-08-10\n---\n\nKickoff notes.".to_string(),
+            ),
+        ];
+        let meetings = scan_meetings(&files);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].name, "Kickoff");
+        assert_eq!(meetings[0].date, "2026-08-10");
+    }
 }

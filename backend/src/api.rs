@@ -1076,6 +1076,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_projects_finds_a_project_promoted_to_a_folder_with_index_md() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("todowai/backlog/parisjug")).unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/parisjug/index.md"),
+            "---\ntype: project\nstatus: in-progress\n---\n\nParisJUG chez Sciam event.",
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join("todowai/backlog/parisjug/find-a-date.md"),
+            "---\ntype: todo\n---\n\nFind a date.",
+        )
+        .unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/projects").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let projects: Vec<Project> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "Parisjug");
+        assert_eq!(projects[0].status, "in-progress");
+    }
+
+    #[tokio::test]
     async fn list_horizon_items_finds_todos_and_projects_but_not_meetings() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(temp.path().join("todowai/backlog")).unwrap();

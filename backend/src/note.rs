@@ -26,17 +26,40 @@ pub fn parse_frontmatter_fields(raw: &str) -> (HashMap<String, String>, String) 
     (fields, body.trim().to_string())
 }
 
+/// The folder-note marker (ADR-003, #111): a folder containing this file *is* one note — any
+/// other note type (project, task, meeting) can be promoted from a flat `<name>.md` to
+/// `<name>/index.md` the moment it needs to hold more than itself (images, other notes). A
+/// folder with no `index.md` isn't a note at all, which is what keeps the shared
+/// `backlog`/`doing`/`done` folders from ever being mistaken for one — nobody puts an
+/// `index.md` there.
+pub const INDEX_FILE_NAME: &str = "index.md";
+
 /// Notes don't carry an explicit title field today — derives a readable name from the filename
 /// instead: strips a leading `YYYY-MM-DD-` date prefix (the project's own convention for filed
 /// notes, see #16/#17) and the `.md` extension, then title-cases the remaining dash-separated
-/// slug (e.g. "2026-08-10-client-x-migration.md" -> "Client X Migration").
+/// slug (e.g. "2026-08-10-client-x-migration.md" -> "Client X Migration"). For an `index.md`
+/// (#111), the file itself has no meaningful name — the folder it lives in *is* the note — so
+/// the title comes from the folder's own name instead of the literal "index".
 pub fn display_name(path: &str) -> String {
     let file_name = path.rsplit('/').next().unwrap_or(path);
-    let without_ext = file_name.strip_suffix(".md").unwrap_or(file_name);
-    let without_date = strip_date_prefix(without_ext);
+    if file_name.eq_ignore_ascii_case(INDEX_FILE_NAME) {
+        let folder_name = parent_dir_name(path).unwrap_or("Index");
+        return title_case_slug(strip_date_prefix(folder_name));
+    }
 
-    without_date
-        .split('-')
+    let without_ext = file_name.strip_suffix(".md").unwrap_or(file_name);
+    title_case_slug(strip_date_prefix(without_ext))
+}
+
+/// The name of the folder directly containing `path` — e.g. "parisjug" for
+/// "todowai/backlog/parisjug/index.md". `None` when `path` has no containing folder at all.
+fn parent_dir_name(path: &str) -> Option<&str> {
+    let (parent, _) = path.rsplit_once('/')?;
+    parent.rsplit('/').next()
+}
+
+fn title_case_slug(slug: &str) -> String {
+    slug.split('-')
         .filter(|segment| !segment.is_empty())
         .map(|segment| {
             let mut chars = segment.chars();
@@ -78,6 +101,21 @@ mod tests {
     #[test]
     fn display_name_without_a_date_prefix_is_unaffected() {
         assert_eq!(display_name("todowai/backlog/spec-cleanup.md"), "Spec Cleanup");
+    }
+
+    #[test]
+    fn display_name_of_an_index_note_uses_the_folder_name_not_the_literal_index() {
+        assert_eq!(display_name("todowai/backlog/parisjug/index.md"), "Parisjug");
+    }
+
+    #[test]
+    fn display_name_of_an_index_note_strips_the_folders_own_date_prefix() {
+        assert_eq!(display_name("todowai/backlog/2026-08-10-client-x-migration/index.md"), "Client X Migration");
+    }
+
+    #[test]
+    fn display_name_of_index_is_case_insensitive() {
+        assert_eq!(display_name("todowai/backlog/parisjug/INDEX.MD"), "Parisjug");
     }
 
     #[test]
