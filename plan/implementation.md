@@ -157,10 +157,10 @@ Mid-to-long-range planning views.
 
 Lightweight meeting note representation.
 
-- **Meetings view: list + frontmatter note preview** (S) — https://github.com/sunix/todowai/issues/28
-  Build the Meetings screen: a list of meeting notes (plain Markdown with type/date/attendees frontmatter) with a preview pane.
-  - [ ] Meeting notes are discovered from frontmatter (type: meeting), not a separate data store
-  - [ ] Selecting a meeting shows its frontmatter and body content
+- **Meetings view: list + frontmatter note preview** (S) — https://github.com/sunix/todowai/issues/28 — *Merged (#105).*
+  Build the Meetings screen: a list of meeting notes (plain Markdown with type/date/attendees frontmatter) with a preview pane. Live-testing this PR surfaced an unrelated ad-hoc bug, fixed separately: [#106](https://github.com/sunix/todowai/issues/106) (Capture's "Let AI propose" truncating on longer captures — the shared AI completion `max_tokens` cap was too low, merged via #107).
+  - [x] Meeting notes are discovered from frontmatter (type: meeting), not a separate data store
+  - [x] Selecting a meeting shows its frontmatter and body content
 
 
 ## M7 — AI reorganization & delegation guardrails
