@@ -73,6 +73,28 @@ pub struct RemoteConfig {
     pub token: String,
 }
 
+/// The safe-to-echo half of RemoteConfig — never includes the token, matching how AiConfigView
+/// never includes the API key. Lets Settings pre-fill the URL/username fields on load without
+/// ever risking the token leaking into a browser response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteConfigView {
+    pub url: String,
+    pub username: String,
+    pub configured: bool,
+}
+
+impl RemoteConfigView {
+    pub fn from_config(config: Option<&RemoteConfig>) -> Self {
+        match config {
+            Some(config) => {
+                RemoteConfigView { url: config.url.clone(), username: config.username.clone(), configured: true }
+            }
+            None => RemoteConfigView { url: String::new(), username: String::new(), configured: false },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncStatus {
@@ -199,6 +221,10 @@ impl Repository {
         self.remote.is_some()
     }
 
+    pub fn remote(&self) -> Option<&RemoteConfig> {
+        self.remote.as_ref()
+    }
+
     /// A real conflict from the most recent pull/push attempt that still needs a per-file
     /// keep-mine/keep-theirs decision via `resolve_conflict`. `None` once resolved, or once a
     /// later sync attempt supersedes it (e.g. a fresh, cleanly-merging pull).
@@ -228,15 +254,20 @@ impl Repository {
         Ok(remotes)
     }
 
-    /// `None` (or an empty/whitespace-only URL) clears the configured remote entirely.
+    /// `None` (or an empty/whitespace-only URL) clears the configured remote entirely. An empty
+    /// `token` on an otherwise non-empty update preserves whatever token was already configured,
+    /// rather than wiping it — necessary now that Settings pre-fills the URL/username fields
+    /// (RemoteConfigView never includes the token, so a form saved without retyping it would
+    /// otherwise silently blank out a working credential).
     pub fn set_remote(&mut self, remote: Option<RemoteConfig>) {
+        let previous_token = self.remote.as_ref().map(|existing| existing.token.clone());
         self.remote = remote.and_then(|r| {
             let url = r.url.trim().to_string();
             if url.is_empty() {
-                None
-            } else {
-                Some(RemoteConfig { url, ..r })
+                return None;
             }
+            let token = if r.token.is_empty() { previous_token.clone().unwrap_or_default() } else { r.token };
+            Some(RemoteConfig { url, token, ..r })
         });
     }
 

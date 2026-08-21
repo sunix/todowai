@@ -1011,6 +1011,7 @@ type SettingsScreenState = {
   aiApiKey: string;
   aiModel: string;
   aiBaseUrl: string;
+  aiMaxCompletionTokens: string;
   aiModels: string[];
   calendarFeeds: CalendarFeed[];
 };
@@ -1044,11 +1045,12 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
     configuredRemotes: [],
     conflict: null,
     conflictChoices: {},
-    aiConfig: { provider: null, model: null, baseUrl: null, configured: false },
+    aiConfig: { provider: null, model: null, baseUrl: null, maxCompletionTokens: null, configured: false },
     aiProvider: 'anthropic' as AiProvider,
     aiApiKey: '',
     aiModel: '',
     aiBaseUrl: '',
+    aiMaxCompletionTokens: '',
     aiModels: [],
     calendarFeeds: [],
   };
@@ -1133,12 +1135,11 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
       <article class="card">
         <h2 class="section-title">Remote sync</h2>
         <p class="section-copy">
-          Optional: connect a git remote to sync this vault. Credentials are saved to a
-          git-ignored settings file inside this vault's Todowai subfolder — never committed, and
-          never sent back to the browser once saved — so you won't need to re-enter them after a
-          restart. If a remote was already configured (via that file or environment variables),
-          these fields will look empty here — that's expected. Leave them blank and just watch
-          the sync status in the sidebar rather than resaving, or fill them in to override.
+          Optional: connect a git remote to sync this vault. The URL and username below are
+          pre-filled from whatever's already configured (via the settings file or environment
+          variables); the personal access token is never sent back to the browser once saved, so
+          it always starts blank — leave it blank when saving to keep the existing one, or type a
+          new one to replace it.
         </p>
         <label class="field-label" for="remote-url">Remote URL</label>
         <input class="text-input" id="remote-url" list="configured-remotes" value="${escapeHtmlAttribute(viewState.remoteUrl)}" placeholder="https://github.com/you/notes.git">
@@ -1164,9 +1165,10 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
         <h2 class="section-title">AI provider</h2>
         <p class="section-copy">
           Optional: connect an AI provider so Capture's "Let AI propose" button can draft a
-          classification for you. Credentials are saved to a git-ignored settings file inside
-          this vault's Todowai subfolder — never committed, and never sent back to the browser
-          once saved — so you won't need to re-enter them after a restart. Currently:
+          classification for you. Provider/model/base URL below are pre-filled from whatever's
+          already configured; the API key is never sent back to the browser once saved, so it
+          always starts blank — leave it blank when saving to keep the existing one, or type a
+          new one to replace it. Currently:
           <strong>${
             viewState.aiConfig.configured
               ? `${escapeHtml(aiProviderLabel(viewState.aiConfig.provider))}${
@@ -1216,6 +1218,20 @@ export function renderSettingsScreen(state?: SettingsScreenState): string {
           placeholder="override the default endpoint — e.g. for Ollama or a self-hosted server"
           ${viewState.isBusy ? 'disabled' : ''}
         >
+        <label class="field-label" for="ai-max-completion-tokens">Max completion tokens</label>
+        <input
+          class="text-input"
+          type="number"
+          min="1"
+          id="ai-max-completion-tokens"
+          value="${escapeHtmlAttribute(viewState.aiMaxCompletionTokens)}"
+          placeholder="default: 8192"
+          ${viewState.isBusy ? 'disabled' : ''}
+        >
+        <p class="field-help">
+          Caps how long a response can be. Raise this if "Let AI propose" fails with a JSON parse
+          error on longer captures (the response got cut off); leave blank to use the default.
+        </p>
         <div class="button-row">
           <button class="primary-button" id="save-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Save AI settings</button>
           <button class="secondary-button" id="clear-ai-config-button" ${viewState.isBusy ? 'disabled' : ''}>Clear</button>

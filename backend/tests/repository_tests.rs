@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use todowai_backend::repository::{ChangeType, Repository};
+use todowai_backend::repository::{ChangeType, RemoteConfig, Repository};
 
 fn init_seeded_repo(dir: &Path) {
     let repo = git2::Repository::init(dir).unwrap();
@@ -384,4 +384,65 @@ fn missing_settings_file_loads_as_empty() {
     let repository = Repository::open(temp.path()).unwrap();
 
     assert_eq!(repository.load_settings(), serde_json::json!({}));
+}
+
+#[test]
+fn set_remote_with_a_blank_token_preserves_the_existing_one() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let mut repository = Repository::open(temp.path()).unwrap();
+
+    repository.set_remote(Some(RemoteConfig {
+        url: "https://example.invalid/notes.git".to_string(),
+        username: "git".to_string(),
+        token: "real-token".to_string(),
+    }));
+
+    // Settings re-saved (e.g. just changing the username) without retyping the token — a
+    // pre-filled Settings form saved this way must not wipe the real token.
+    repository.set_remote(Some(RemoteConfig {
+        url: "https://example.invalid/notes.git".to_string(),
+        username: "someone-else".to_string(),
+        token: String::new(),
+    }));
+
+    let remote = repository.remote().unwrap();
+    assert_eq!(remote.username, "someone-else");
+    assert_eq!(remote.token, "real-token");
+}
+
+#[test]
+fn set_remote_with_an_explicit_token_overwrites_the_existing_one() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let mut repository = Repository::open(temp.path()).unwrap();
+
+    repository.set_remote(Some(RemoteConfig {
+        url: "https://example.invalid/notes.git".to_string(),
+        username: "git".to_string(),
+        token: "old-token".to_string(),
+    }));
+    repository.set_remote(Some(RemoteConfig {
+        url: "https://example.invalid/notes.git".to_string(),
+        username: "git".to_string(),
+        token: "new-token".to_string(),
+    }));
+
+    assert_eq!(repository.remote().unwrap().token, "new-token");
+}
+
+#[test]
+fn set_remote_with_a_blank_url_clears_the_remote_even_with_a_previous_token() {
+    let temp = tempfile::tempdir().unwrap();
+    init_seeded_repo(temp.path());
+    let mut repository = Repository::open(temp.path()).unwrap();
+
+    repository.set_remote(Some(RemoteConfig {
+        url: "https://example.invalid/notes.git".to_string(),
+        username: "git".to_string(),
+        token: "real-token".to_string(),
+    }));
+    repository.set_remote(Some(RemoteConfig { url: String::new(), username: String::new(), token: String::new() }));
+
+    assert!(repository.remote().is_none());
 }

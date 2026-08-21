@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{FromRef, Query, State};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
@@ -16,7 +16,8 @@ use crate::horizon::HorizonItem;
 use crate::meetings::Meeting;
 use crate::projects::Project;
 use crate::repository::{
-    CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, Repository, Snapshot, SyncResult,
+    CommitResult, ConfiguredRemote, ConflictInfo, ConflictResolution, RemoteConfig, RemoteConfigView, Repository, Snapshot,
+    SyncResult,
 };
 use crate::sync::SyncScheduler;
 
@@ -78,7 +79,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repository", get(get_snapshot))
         .route("/api/repository/file", get(read_file).put(write_file))
         .route("/api/repository/commit", post(commit_all))
-        .route("/api/sync/remote", put(set_remote))
+        .route("/api/sync/remote", get(get_remote_config).put(set_remote))
         .route("/api/sync/remotes", get(list_configured_remotes))
         .route("/api/sync/status", get(sync_status))
         .route("/api/sync/pull", post(sync_pull))
@@ -169,13 +170,22 @@ fn remote_settings_json(remote: &RemoteConfig) -> serde_json::Value {
     serde_json::json!({ "url": remote.url, "username": remote.username, "token": remote.token })
 }
 
+async fn get_remote_config(State(repository): State<SharedRepository>) -> Result<Json<RemoteConfigView>, RepoError> {
+    let view = with_repository(repository, |repo| Ok(RemoteConfigView::from_config(repo.remote()))).await?;
+    Ok(Json(view))
+}
+
 async fn set_remote(
     State(repository): State<SharedRepository>,
     Json(body): Json<Option<RemoteConfig>>,
 ) -> Result<(), RepoError> {
-    let settings_value = body.as_ref().map(remote_settings_json);
     with_repository(repository, move |repo| {
         repo.set_remote(body);
+        // Persist whatever repo.set_remote actually ended up with (which may have preserved an
+        // existing token rather than the possibly-blank one in `body`) — not the raw incoming
+        // body, or a restart would reload a settings file with a wiped-out token even though this
+        // session kept working correctly in memory.
+        let settings_value = repo.remote().map(remote_settings_json);
         // Best-effort: a filesystem hiccup persisting for next time shouldn't fail using the
         // remote for this session, which already succeeded above.
         if let Err(error) = repo.save_settings_section("remote", settings_value) {
@@ -265,16 +275,36 @@ fn ai_settings_json(config: &AiConfig) -> serde_json::Value {
         "apiKey": config.api_key,
         "model": config.model,
         "baseUrl": config.base_url,
+        "maxCompletionTokens": config.max_completion_tokens,
     })
 }
 
-/// `null` clears the configured provider entirely — same convention as PUT /api/sync/remote.
+/// `null` clears the configured provider entirely — same convention as PUT /api/sync/remote. An
+/// empty `apiKey` on an otherwise non-empty update preserves whatever key was already configured
+/// rather than wiping it — necessary now that Settings pre-fills provider/model/baseUrl
+/// (AiConfigView never includes the key, so a form saved without retyping it would otherwise
+/// silently blank out a working credential, same fix as repository::Repository::set_remote's
+/// token handling).
 async fn set_ai_config(
     State(repository): State<SharedRepository>,
     State(ai_config): State<SharedAiConfig>,
     Json(body): Json<Option<AiConfig>>,
 ) -> Json<AiConfigView> {
-    let settings_value = body.as_ref().map(ai_settings_json);
+    let existing_api_key = {
+        let guard = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.as_ref().map(|config| config.api_key.clone())
+    };
+
+    let merged = body.map(|mut incoming| {
+        if incoming.api_key.trim().is_empty() {
+            if let Some(existing) = &existing_api_key {
+                incoming.api_key = existing.clone();
+            }
+        }
+        incoming
+    });
+
+    let settings_value = merged.as_ref().map(ai_settings_json);
     // Best-effort: a filesystem hiccup persisting for next time shouldn't block using the
     // provider right now — the in-memory update below always takes effect regardless.
     if let Err(error) = with_repository(repository, move |repo| repo.save_settings_section("ai", settings_value)).await {
@@ -282,7 +312,7 @@ async fn set_ai_config(
     }
 
     let mut config = ai_config.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    *config = body;
+    *config = merged;
     Json(AiConfigView::from_config(config.as_ref()))
 }
 
@@ -827,6 +857,126 @@ mod tests {
         let persisted = repository.lock().unwrap().load_settings();
         assert_eq!(persisted["remote"]["url"], "https://example.invalid/repo.git");
         assert_eq!(persisted["remote"]["token"], "ghp_super_secret");
+    }
+
+    #[tokio::test]
+    async fn get_remote_config_defaults_to_unconfigured() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        let response = app.oneshot(Request::builder().uri("/api/sync/remote").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let view: RemoteConfigView = serde_json::from_slice(&body).unwrap();
+        assert!(!view.configured);
+        assert_eq!(view.url, "");
+    }
+
+    #[tokio::test]
+    async fn get_remote_config_shows_url_and_username_but_never_the_token() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = router(test_state(init_repo(temp.path())));
+
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/sync/remote")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "url": "https://example.invalid/repo.git",
+                            "username": "git",
+                            "token": "ghp_super_secret"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let response = app.oneshot(Request::builder().uri("/api/sync/remote").body(Body::empty()).unwrap()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!body_text.contains("ghp_super_secret"), "response leaked the token: {body_text}");
+
+        let view: RemoteConfigView = serde_json::from_str(&body_text).unwrap();
+        assert!(view.configured);
+        assert_eq!(view.url, "https://example.invalid/repo.git");
+        assert_eq!(view.username, "git");
+    }
+
+    #[tokio::test]
+    async fn resaving_remote_with_a_blank_token_preserves_the_real_one_on_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_state(init_repo(temp.path()));
+        let repository = state.repository.clone();
+        let app = router(state);
+
+        let save = |username: &'static str, token: &'static str| {
+            Request::builder()
+                .method("PUT")
+                .uri("/api/sync/remote")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "url": "https://example.invalid/repo.git",
+                        "username": username,
+                        "token": token
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap()
+        };
+
+        app.clone().oneshot(save("git", "ghp_super_secret")).await.unwrap();
+        // Settings form pre-filled from GET /api/sync/remote, resaved after only changing the
+        // username — the token field was never retyped, so it's blank in this request.
+        let response = app.oneshot(save("someone-else", "")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let persisted = repository.lock().unwrap().load_settings();
+        assert_eq!(persisted["remote"]["username"], "someone-else");
+        assert_eq!(persisted["remote"]["token"], "ghp_super_secret");
+    }
+
+    #[tokio::test]
+    async fn resaving_ai_config_with_a_blank_api_key_preserves_the_real_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_state(init_repo(temp.path()));
+        let repository = state.repository.clone();
+        let app = router(state);
+
+        let save = |model: &'static str, api_key: &'static str| {
+            Request::builder()
+                .method("PUT")
+                .uri("/api/ai/config")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "provider": "anthropic",
+                        "apiKey": api_key,
+                        "model": model,
+                        "baseUrl": null
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap()
+        };
+
+        app.clone().oneshot(save("claude-opus-5", "sk-super-secret")).await.unwrap();
+        // Settings form pre-filled from GET /api/ai/config, resaved after only changing the
+        // model — the API key field was never retyped, so it's blank in this request.
+        let response = app.oneshot(save("claude-sonnet-5", "")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let persisted = repository.lock().unwrap().load_settings();
+        assert_eq!(persisted["ai"]["model"], "claude-sonnet-5");
+        assert_eq!(persisted["ai"]["apiKey"], "sk-super-secret");
     }
 
     #[tokio::test]
