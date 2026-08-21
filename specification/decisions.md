@@ -126,3 +126,80 @@ Mitigations kept in place:
   regardless of env vars, which is what actually removes the retyping friction.
 - Self-hosting on a filesystem without normal Unix permission semantics loses the `0600`
   hardening (best-effort, not enforced) — acceptable for v1's Docker/Linux-first target.
+
+---
+
+## ADR-003: Folder-notes via `index.md`; horizon stays a per-note field, no central manifest (2026-08-21)
+
+**Status:** Accepted
+
+**Context:**
+
+Real projects need more than one note — related tasks, meeting notes, reference material —
+kept together (issue #111), and an individual task/meeting needs its own horizon so a
+project with work due in more than one horizon can appear in several Horizon columns at
+once, expandable per horizon (issue #112), plus a Today's plan column with drag-in from
+This Week (issue #113) and a few more horizon-like buckets (archive, sleeping/frozen, done).
+This meant deciding both how a project's notes are grouped on disk, and how horizon
+membership (now needed per-task, not just per-project) is tracked.
+
+**Options considered:**
+
+- *Grouping via an explicit `project:` link field* on each child note pointing back at its
+  project — flexible (a note doesn't need to physically move), but reintroduces exactly the
+  "notes scattered with only a mention" problem #111 exists to fix, and needs a stable
+  reference (path breaks on rename; an ID needs inventing and mapping back to a note).
+- *Grouping via folder + type-sniffing* — a project's folder is implicitly its own note's
+  parent directory, found by scanning the folder for whichever note has `type: project`.
+  Works, but is ambiguous when generalized to other note types, and requires explicitly
+  excluding the shared `backlog`/`doing`/`done` folders from ever being treated as "a note's
+  own folder" (every project note living directly in `backlog/` would otherwise claim every
+  unrelated sibling note there).
+- *Horizon as a central manifest* — one file (markdown or JSON) with a sublist per horizon
+  bucket, every new note auto-linked into "unplanned" on creation. Attractive as a single
+  glanceable dashboard, but rejected: it duplicates what the Horizon screen already computes
+  live from frontmatter, and it requires active reconciliation — a note created any way
+  other than through the exact registration flow (typed directly in Obsidian, restored from
+  a backup, moved by hand outside the app) would be invisible until something explicitly
+  re-syncs the manifest against what's actually on disk. Frontmatter-per-note can't drift
+  that way: whatever the note's `horizon:` field says *is* the truth, however the note came
+  to exist.
+
+**Decision:**
+
+- **Folder-notes via `index.md`.** Any note — a project, a task, a meeting — can be promoted
+  from a flat `<name>.md` file to a folder `<name>/index.md` when it needs to hold more than
+  itself (images, other notes). `index.md` carries exactly the frontmatter/body a flat file
+  would; a folder with no `index.md` isn't a note at all (so `backlog`/`doing`/`done` are
+  automatically excluded — nobody puts an `index.md` there — with no folder-name exclusion
+  list to maintain). This is type-agnostic and applies uniformly to every note type, not
+  just projects, and generalizes for free to a task that itself needs an attachment.
+- **Containment defines ownership.** A note's owner is the nearest ancestor folder that is
+  itself an `index.md`-defined note. Anything else living inside that folder — a flat task
+  note, a meeting note, a nested `task-slug/index.md` promoted the same way — belongs to it,
+  with no new frontmatter field needed to express the relationship. `note::display_name`
+  gets one small addition: for an `index.md`, the title comes from the parent folder's name,
+  not the literal filename "index".
+- **Horizon stays a plain per-note frontmatter field**, unchanged from #26/#27, just with a
+  wider set of recognized values: `week` / `month` / `year` as today, plus `next-action`,
+  `archive`, `sleeping` (or `frozen`), and `done` — unset still means unplanned. Any note,
+  however it was created, is automatically and correctly bucketed the instant it's scanned.
+- **`horizon-order.json` is retired** in favor of a sparse numeric `horizon_order:`
+  frontmatter field per note (deliberately gapped values, e.g. increments of 1000, so
+  reordering only ever rewrites the one moved note, not a shared file). This removes the
+  last piece of horizon state that lived outside the note itself — opening any note directly
+  in Obsidian now shows exactly where it sits, with nothing to cross-reference.
+
+**Consequences:**
+
+- No migration for existing project notes: the folder/`index.md` behavior is opt-in — a flat
+  project note keeps working exactly as it does today until it's promoted into its own
+  folder with sibling notes placed alongside it.
+- #111 implements `index.md`-aware discovery and the containment rule across
+  `note.rs`/`projects.rs`/`horizon.rs`/`meetings.rs`; #112 widens the horizon enum and
+  migrates from `horizon-order.json` to the sparse `horizon_order` field; #113 will need to
+  decide how "Today's plan" maps onto this — likely the `next-action` value, or its own,
+  resolved when that issue is implemented.
+- `app/src/main.ts`'s `horizon-order.json` read/write path (`parseHorizonOrder`,
+  `serializeHorizonOrder`, `refreshHorizonOrder`) is removed once #112 lands; until then it
+  coexists without conflict with #111's work, since #111 doesn't touch horizon assignment.
